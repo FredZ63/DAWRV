@@ -1,0 +1,302 @@
+class RHEAController {
+    constructor() {
+        this.status = 'ready';
+        this.isListening = false;
+        this.statusIndicator = document.getElementById('rhea-status');
+        this.statusText = document.getElementById('status-text');
+        this.audioVisualizer = document.getElementById('audio-viz');
+        this.voiceToggle = document.getElementById('voice-toggle');
+        
+        this.initializeEventListeners();
+        this.initializeVoiceEngine();
+    }
+
+    initializeEventListeners() {
+        this.voiceToggle.addEventListener('click', () => {
+            this.toggleVoiceListening();
+        });
+
+        document.querySelectorAll('.quick-cmd').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const command = e.target.dataset.command;
+                this.executeQuickCommand(command);
+            });
+        });
+
+        if (window.dawrv) {
+            window.dawrv.voice.onEngineReady(() => {
+                this.updateStatus('ready', 'Ready');
+                this.updateConnectionStatus('voice', 'ready');
+            });
+
+            window.dawrv.voice.onTranscript((transcript) => {
+                this.processVoiceCommand(transcript);
+            });
+
+            window.dawrv.voice.onError((error) => {
+                this.updateStatus('error', 'Voice Engine Error');
+                console.error('Voice Engine Error:', error);
+            });
+        }
+    }
+
+    initializeVoiceEngine() {
+        this.updateStatus('initializing', 'Initializing...');
+        this.updateConnectionStatus('voice', 'initializing');
+    }
+
+    updateStatus(status, message) {
+        this.status = status;
+        this.statusText.textContent = message;
+        this.statusIndicator.className = 'status-indicator ' + status;
+        this.statusText.className = 'status-text ' + status;
+        
+        if (status === 'listening') {
+            this.audioVisualizer.classList.add('active');
+        } else {
+            this.audioVisualizer.classList.remove('active');
+        }
+    }
+
+    updateConnectionStatus(type, status) {
+        const statusMap = {
+            'voice': 'voice-engine-status',
+            'daw': 'connection-status'
+        };
+        
+        const element = document.getElementById(statusMap[type]);
+        if (!element) return;
+        
+        const messages = {
+            'initializing': '🟡 Initializing...',
+            'ready': '🟢 Ready',
+            'connected': '🟢 Connected',
+            'error': '🔴 Error'
+        };
+        
+        element.textContent = messages[status] || status;
+    }
+
+    async toggleVoiceListening() {
+        if (!this.isListening) {
+            await this.startListening();
+        } else {
+            await this.stopListening();
+        }
+    }
+
+    async startListening() {
+        try {
+            const success = await window.dawrv.voice.startListening();
+            if (success) {
+                this.isListening = true;
+                this.updateStatus('listening', 'Listening...');
+                this.voiceToggle.classList.add('active');
+                this.voiceToggle.querySelector('.btn-text').textContent = 'Stop Listening';
+                this.voiceToggle.querySelector('.btn-icon').textContent = '🔴';
+            }
+        } catch (error) {
+            console.error('Failed to start listening:', error);
+            this.updateStatus('error', 'Failed to start');
+        }
+    }
+
+    async stopListening() {
+        try {
+            await window.dawrv.voice.stopListening();
+            this.isListening = false;
+            this.updateStatus('ready', 'Ready');
+            this.voiceToggle.classList.remove('active');
+            this.voiceToggle.querySelector('.btn-text').textContent = 'Start Listening';
+            this.voiceToggle.querySelector('.btn-icon').textContent = '🎤';
+        } catch (error) {
+            console.error('Failed to stop listening:', error);
+        }
+    }
+
+    async processVoiceCommand(transcript) {
+        this.updateStatus('processing', 'Processing...');
+        this.logCommand(transcript);
+        
+        try {
+            const command = this.parseCommand(transcript);
+            
+            if (command) {
+                this.updateStatus('responding', 'Executing...');
+                const result = await window.dawrv.daw.sendCommand(command.action, command.params);
+                
+                if (result.success) {
+                    this.logResult(transcript, 'success');
+                } else {
+                    this.logResult(transcript, 'error');
+                }
+            } else {
+                this.logResult(transcript, 'unknown');
+            }
+        } catch (error) {
+            console.error('Error processing command:', error);
+            this.logResult(transcript, 'error');
+        }
+        
+        setTimeout(() => {
+            if (this.isListening) {
+                this.updateStatus('listening', 'Listening...');
+            } else {
+                this.updateStatus('ready', 'Ready');
+            }
+        }, 2000);
+    }
+
+    parseCommand(transcript) {
+        const lowerTranscript = transcript.toLowerCase();
+        
+        const commands = {
+            'play': { action: 'transport_play', params: {} },
+            'stop': { action: 'transport_stop', params: {} },
+            'record': { action: 'transport_record', params: {} },
+            'pause': { action: 'transport_pause', params: {} },
+            'undo': { action: 'edit_undo', params: {} }
+        };
+
+        for (const [keyword, command] of Object.entries(commands)) {
+            if (lowerTranscript.includes(keyword)) {
+                return command;
+            }
+        }
+
+        return null;
+    }
+
+    executeQuickCommand(command) {
+        const commands = {
+            'play': 'transport_play',
+            'stop': 'transport_stop',
+            'record': 'transport_record',
+            'undo': 'edit_undo'
+        };
+
+        if (commands[command]) {
+            this.updateStatus('responding', 'Executing...');
+            window.dawrv.daw.sendCommand(commands[command], {})
+                .then(result => {
+                    this.logResult(command, result.success ? 'success' : 'error');
+                    setTimeout(() => this.updateStatus('ready', 'Ready'), 1000);
+                });
+        }
+    }
+
+    logCommand(command) {
+        const logContainer = document.getElementById('command-log');
+        const timestamp = new Date().toLocaleTimeString();
+        
+        const logEntry = document.createElement('div');
+        logEntry.className = 'log-entry';
+        logEntry.innerHTML = \`
+            <span class="timestamp">\${timestamp}</span>
+            <span class="command">"\${command}"</span>
+            <span class="result processing">⏳ Processing</span>
+        \`;
+        
+        logContainer.insertBefore(logEntry, logContainer.firstChild);
+        
+        while (logContainer.children.length > 50) {
+            logContainer.removeChild(logContainer.lastChild);
+        }
+    }
+
+    logResult(command, status) {
+        const logContainer = document.getElementById('command-log');
+        const firstEntry = logContainer.firstChild;
+        
+        if (firstEntry) {
+            const resultSpan = firstEntry.querySelector('.result');
+            if (resultSpan) {
+                const statusMap = {
+                    'success': { text: '✓ Executed', class: 'success' },
+                    'error': { text: '✗ Failed', class: 'error' },
+                    'unknown': { text: '? Unknown', class: 'unknown' }
+                };
+                
+                const statusInfo = statusMap[status] || statusMap['unknown'];
+                resultSpan.innerHTML = statusInfo.text;
+                resultSpan.className = 'result ' + statusInfo.class;
+            }
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    window.rhea = new RHEAController();
+    
+    // Update connection status
+    setTimeout(() => {
+        document.getElementById('connection-status').textContent = '🟢 REAPER Ready';
+        document.getElementById('connection-status').className = 'status-connected';
+    }, 2000);
+});
+
+// Add speaking capability to RHEA
+RHEAController.prototype.startSpeaking = function(text) {
+    this.updateStatus('speaking', 'Speaking...');
+    
+    // Add speaking class to avatar
+    const avatar = document.querySelector('.rhea-avatar');
+    if (avatar) {
+        avatar.classList.add('speaking');
+    }
+    
+    // Use browser speech synthesis
+    if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.9;
+        utterance.pitch = 1.1;
+        utterance.volume = 1.0;
+        
+        utterance.onend = () => {
+            this.stopSpeaking();
+        };
+        
+        window.speechSynthesis.speak(utterance);
+        console.log('RHEA speaking:', text);
+    }
+};
+
+RHEAController.prototype.stopSpeaking = function() {
+    const avatar = document.querySelector('.rhea-avatar');
+    if (avatar) {
+        avatar.classList.remove('speaking');
+    }
+    
+    if (this.isListening) {
+        this.updateStatus('listening', 'Listening...');
+    } else {
+        this.updateStatus('ready', 'Ready to assist');
+    }
+};
+
+// Update processVoiceCommand to include verbal response
+const originalProcessCommand = RHEAController.prototype.processVoiceCommand;
+RHEAController.prototype.processVoiceCommand = function(transcript) {
+    originalProcessCommand.call(this, transcript);
+    
+    // RHEA responds verbally
+    const responses = {
+        'play': 'Starting playback',
+        'stop': 'Stopping playback',
+        'record': 'Recording started',
+        'pause': 'Paused',
+        'undo': 'Undoing last action'
+    };
+    
+    const lowerTranscript = transcript.toLowerCase();
+    for (const [keyword, response] of Object.entries(responses)) {
+        if (lowerTranscript.includes(keyword)) {
+            setTimeout(() => {
+                this.startSpeaking(response);
+            }, 500);
+            break;
+        }
+    }
+};
+
+console.log('✅ RHEA voice response system enabled');

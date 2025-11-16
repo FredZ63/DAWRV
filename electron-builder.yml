@@ -1,0 +1,76 @@
+appId: com.zimmtek.dawrv
+productName: DAWRV
+copyright: Copyright © 2024 Frederick Zimmerman / ZIMMTEK Technology
+
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - "src/**/*"
+  - "rhea_voice_listener.py"
+  - "reaper_bridge.py"
+  - "reaper_osc_sender.py"
+  - "package.json"
+  - "README.md"
+  - "REAPER_SETUP.md"
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
+  - "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
+  - "!**/node_modules/*.d.ts"
+  - "!**/node_modules/.bin"
+  - "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
+  - "!.editorconfig"
+  - "!**/._*"
+  - "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}"
+  - "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}"
+  - "!**/{appveyor.yml,.travis.yml,circle.yml}"
+  - "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+
+extraResources:
+  - from: "rhea_voice_listener.py"
+    to: "rhea_voice_listener.py"
+  - from: "reaper_bridge.py"
+    to: "reaper_bridge.py"
+  - from: "reaper_osc_sender.py"
+    to: "reaper_osc_sender.py"
+  - from: "REAPER_SETUP.md"
+    to: "REAPER_SETUP.md"
+
+mac:
+  category: public.app-category.music
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  notarize: false
+  # Icon will be auto-generated if not found
+  # icon: build/icon.icns
+
+dmg:
+  title: "${productName} ${version}"
+  # DMG customization (optional - will use defaults if files don't exist)
+  # icon: build/dmg-icon.icns
+  # background: build/dmg-background.png
+  contents:
+    - x: 410
+      y: 150
+      type: link
+      path: /Applications
+    - x: 130
+      y: 150
+      type: file
+  window:
+    width: 540
+    height: 380
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+publish: null
+

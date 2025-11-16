@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DAWRV - Digital Audio Workstation Response to Voice</title>
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/rhea.css">
+</head>
+<body>
+    <div id="app" class="app-container">
+        <!-- Top Navigation -->
+        <nav class="top-nav">
+            <div class="nav-brand">
+                <h1>DAWRV</h1>
+                <span class="pronunciation">(DARVEE)</span>
+                <span class="version">v1.0</span>
+            </div>
+            <div class="nav-tagline">
+                Digital Audio Workstation Response to Voice
+            </div>
+        </nav>
+
+        <div class="main-content">
+            <!-- RHEA Panel -->
+            <section class="rhea-panel">
+                <div class="rhea-header">
+                    <h2>RHEA</h2>
+                    <p class="rhea-subtitle">Responsive Heuristic Environment Assistant</p>
+                </div>
+
+                <div class="rhea-avatar-container">
+                    <div class="avatar-wrapper">
+                        <div class="rhea-avatar">
+                            <div class="avatar-glow"></div>
+                            <img src="assets/images/rhea_avatar.png" alt="RHEA" class="rhea-image">
+                        </div>
+                        <div class="status-indicator" id="rhea-status"></div>
+                    </div>
+                    
+                    <div class="rhea-info">
+                        <div class="status-display">
+                            <span id="status-text" class="status-text">Ready to assist</span>
+                            <div class="audio-visualizer" id="audio-viz">
+                                <div class="viz-bar"></div>
+                                <div class="viz-bar"></div>
+                                <div class="viz-bar"></div>
+                                <div class="viz-bar"></div>
+                                <div class="viz-bar"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>

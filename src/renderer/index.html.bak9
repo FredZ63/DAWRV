@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DAWRV - Digital Audio Workstation Response to Voice</title>
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/rhea.css">
+    <link rel="stylesheet" href="styles/rhea-image.css">
+</head>
+<body>
+    <div id="app" class="app-container">
+        <!-- Top Navigation -->
+        <nav class="top-nav">
+            <div class="nav-brand">
+                <h1>DAWRV</h1>
+                <span class="pronunciation">(DARVEE)</span>
+                <span class="version">v1.0</span>
+            </div>
+            <div class="nav-tagline">
+                Digital Audio Workstation Response to Voice
+            </div>
+        </nav>
+
+        <div class="main-content">
+            <!-- RHEA Panel -->
+            <section class="rhea-panel">
+                <div class="rhea-header">
+                    <h2>RHEA</h2>
+                    <p class="rhea-subtitle">Responsive Heuristic Environment Assistant</p>
+                </div>
+
+                <div class="rhea-avatar-container">
+                    <div class="avatar-wrapper">
+                        <div class="rhea-avatar">
+                            <div class="avatar-glow"></div>
+                            <img src="assets/images/rhea_avatar.png" alt="RHEA" class="rhea-image">
+                        </div>
+                        <div class="status-indicator" id="rhea-status"></div>
+                    </div>
+                    
+                    <div class="rhea-info">
+                        <div class="status-display">
+                            <span id="status-text" class="status-text">Ready to assist</span>
+                            <div class="audio-visualizer" id="audio-viz">
+                                <div class="viz-bar"></div>
+                                <div class="viz-bar"></div>
+                                <div class="viz-bar"></div>
+                                <div class="viz-bar"></div>
+                                <div class="viz-bar"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Voice Control Panel -->
+                <div class="voice-controls">
+                    <button id="voice-toggle" class="voice-btn primary">
+                        <span class="btn-icon">🎤</span>
+                        <span class="btn-text">Start Listening</span>
+                    </button>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="quick-actions">
+                    <h3>Quick Commands</h3>
+                    <div class="action-grid">
+                        <button class="quick-cmd" data-command="play">▶️ Play</button>
+                        <button class="quick-cmd" data-command="stop">⏹️ Stop</button>
+                        <button class="quick-cmd" data-command="record">⏺️ Record</button>
+                        <button class="quick-cmd" data-command="undo">↶ Undo</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Main Work Area -->
+            <section class="work-area">
+                <!-- DAW Selector -->
+                <div class="daw-selector-panel">
+                    <h3>🎛️ DAW Integration</h3>
+                    <div class="daw-options">
+                        <div class="daw-option active" data-daw="reaper">
+                            <div class="daw-icon">🎚️</div>
+                            <span>REAPER</span>
+                            <div class="status connected">●</div>
+                        </div>
+                        <div class="daw-option disabled" data-daw="logic">
+                            <div class="daw-icon">🎹</div>
+                            <span>Logic Pro</span>
+                            <div class="status coming-soon">Coming Soon</div>
+                        </div>
+                        <div class="daw-option disabled" data-daw="protools">
+                            <div class="daw-icon">🎛️</div>
+                            <span>Pro Tools</span>
+                            <div class="status coming-soon">Coming Soon</div>
+                        </div>
+                        <div class="daw-option disabled" data-daw="ableton">
+                            <div class="daw-icon">🎵</div>
+                            <span>Ableton Live</span>
+                            <div class="status coming-soon">Coming Soon</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MORPHEUS Integration -->
+                <div class="ecosystem-panel">
+                    <h3>🌐 Ecosystem Integration</h3>
+                    <div class="ecosystem-grid">
+                        <div class="ecosystem-card morpheus">
+                            <div class="card-icon">🎛️</div>
+                            <h4>MORPHEUS</h4>
+                            <p>Hardware Workstation</p>
+                            <div class="status coming-soon">NAMM 2026</div>
+                        </div>
+                        <div class="ecosystem-card avic">
+                            <div class="card-icon">🎬</div>
+                            <h4>AVIC</h4>
+                            <p>Audio/Video Controller</p>
+                            <div class="status coming-soon">In Development</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Command Log -->
+                <!-- Manual Command Input (Fallback) -->
+                <div class="command-input-box" style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    <h3 style="margin-bottom: 10px;">💬 Type Command (Fallback)</h3>
+                    <input type="text" id="manual-command" placeholder="Type: play, stop, record, undo, save, or new track" style="width: 100%; padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: white; font-size: 14px;">
+                    <button id="send-command" style="margin-top: 10px; padding: 8px 16px; background: #4CAF50; border: none; border-radius: 4px; color: white; cursor: pointer;">Send Command</button>
+                </div>
+                <div class="command-log">
+                    <h3>📝 Command History</h3>
+                    <div class="log-container" id="command-log">
+                        <div class="log-entry">
+                            <span class="timestamp">--:--:--</span>
+                            <span class="command">"Waiting for commands..."</span>
+                            <span class="result ready">🎤 Ready</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Status Bar -->
+        <footer class="status-bar">
+            <div class="status-section">
+                <span id="connection-status">🔴 Initializing...</span>
+            </div>
+            <div class="status-section">
+                <span id="voice-engine-status">🎤 Voice Engine Starting...</span>
+            </div>
+            <div class="status-section">
+                <span>🧠 RHEA v1.0</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="scripts/app.js"></script>
+    <script src="scripts/rhea.js"></script>
+</body>
+</html>

@@ -1,0 +1,125 @@
+const { app, BrowserWindow, ipcMain } = require('electron');
+const path = require('path');
+const { exec } = require('child_process');
+const os = require('os');
+
+class DAWRVApp {
+    constructor() {
+        this.mainWindow = null;
+    }
+
+    createWindow() {
+        this.mainWindow = new BrowserWindow({
+            width: 1400,
+            height: 900,
+            minWidth: 1000,
+            minHeight: 700,
+            webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true,
+                preload: path.join(__dirname, 'preload.js')
+            },
+            titleBarStyle: 'hiddenInset',
+            backgroundColor: '#1a1a2e',
+            show: false
+        });
+
+        this.mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+
+        this.mainWindow.once('ready-to-show', () => {
+            this.mainWindow.show();
+            console.log('✅ DAWRV window ready');
+        });
+
+        if (process.argv.includes('--dev')) {
+            this.mainWindow.webContents.openDevTools();
+        }
+
+        this.mainWindow.on('closed', () => {
+            this.mainWindow = null;
+        });
+    }
+
+    setupIPC() {
+        ipcMain.handle('start-voice-listening', () => {
+            console.log('Voice listening started (simulated)');
+            return true;
+        });
+
+        ipcMain.handle('stop-voice-listening', () => {
+            console.log('Voice listening stopped');
+            return true;
+        });
+
+        ipcMain.handle('send-daw-command', async (event, command, params) => {
+            console.log('DAW Command:', command, params);
+            return { success: true, message: 'Command executed' };
+        });
+
+        ipcMain.handle('execute-reaper-action', async (event, actionId) => {
+            console.log('Executing REAPER action:', actionId);
+            
+            return new Promise((resolve) => {
+                const homeDir = os.homedir();
+                const scriptPath = path.join(homeDir, 'Library/Application Support/REAPER/Scripts/RHEA');
+                
+                const actionMap = {
+                    '1007': 'play.lua',
+                    '1016': 'stop.lua',
+                    '1013': 'record.lua',
+                    '40029': 'undo.lua',
+                    '40026': 'save.lua',
+                    '40001': 'newtrack.lua'
+                };
+                
+                const scriptFile = actionMap[actionId];
+                if (!scriptFile) {
+                    console.error('Unknown action ID:', actionId);
+                    resolve({ success: false, error: 'Unknown action' });
+                    return;
+                }
+                
+                const fullPath = path.join(scriptPath, scriptFile);
+                const command = `/Applications/REAPER.app/Contents/MacOS/reaper -new "${fullPath}"`;
+                
+                exec(command, (error, stdout, stderr) => {
+                    if (error) {
+                        console.error('REAPER command error:', error);
+                        resolve({ success: false, error: error.message });
+                    } else {
+                        console.log('✅ REAPER action executed:', scriptFile);
+                        resolve({ success: true });
+                    }
+                });
+            });
+        });
+
+        setTimeout(() => {
+            if (this.mainWindow) {
+                this.mainWindow.webContents.send('voice-engine-ready');
+                console.log('✅ Voice engine ready (simulated)');
+            }
+        }, 1000);
+    }
+}
+
+const dawrvApp = new DAWRVApp();
+
+app.whenReady().then(() => {
+    dawrvApp.createWindow();
+    dawrvApp.setupIPC();
+});
+
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
+});
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        dawrvApp.createWindow();
+    }
+});
+
+console.log('🚀 DAWRV Starting...');

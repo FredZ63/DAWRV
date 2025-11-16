@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head><title>Button Test</title></head>
+<body>
+    <button id="test-btn">Click Me</button>
+    <div id="output">Waiting...</div>
+    <script>
+        document.getElementById('test-btn').addEventListener('click', () => {
+            document.getElementById('output').textContent = 'Button works!';
+            console.log('Button clicked!');
+        });
+    </script>
+</body>
+</html>

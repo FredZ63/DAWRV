@@ -1,0 +1,427 @@
+/* RHEA Panel */
+.rhea-panel {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: 20px;
+    padding: 30px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
+}
+
+.rhea-header h2 {
+    font-size: 2.5em;
+    font-weight: 700;
+    background: linear-gradient(135deg, #4a9eff, #6c63ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 5px;
+}
+
+.rhea-subtitle {
+    color: #a0a0a0;
+    font-size: 1em;
+    font-style: italic;
+}
+
+/* Avatar */
+.rhea-avatar-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.avatar-wrapper {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.rhea-avatar {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(45deg, #4a9eff, #6c63ff);
+    transition: all 0.3s ease;
+}
+
+.avatar-glow {
+    position: absolute;
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(74, 158, 255, 0.4), transparent);
+    animation: glow-pulse 2s infinite;
+}
+
+@keyframes glow-pulse {
+    0%, 100% { opacity: 0.5; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.1); }
+}
+
+.avatar-inner {
+    font-size: 3em;
+    z-index: 1;
+}
+
+.status-indicator {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #00ff88;
+    border: 3px solid #1a1a2e;
+    box-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+}
+
+.status-indicator.listening {
+    background: #ff6b6b;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* Status Display */
+.status-display {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.status-text {
+    font-size: 1.3em;
+    font-weight: 600;
+    color: #4a9eff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.audio-visualizer {
+    display: flex;
+    align-items: end;
+    gap: 3px;
+    height: 30px;
+}
+
+.viz-bar {
+    width: 4px;
+    background: linear-gradient(to top, #4a9eff, #6c63ff);
+    border-radius: 2px;
+    height: 5px;
+    transition: height 0.1s ease;
+}
+
+.audio-visualizer.active .viz-bar {
+    animation: visualizer 0.5s infinite alternate;
+}
+
+.viz-bar:nth-child(1) { animation-delay: 0.1s; }
+.viz-bar:nth-child(2) { animation-delay: 0.2s; }
+.viz-bar:nth-child(3) { animation-delay: 0.3s; }
+.viz-bar:nth-child(4) { animation-delay: 0.4s; }
+.viz-bar:nth-child(5) { animation-delay: 0.5s; }
+
+@keyframes visualizer {
+    0% { height: 5px; }
+    100% { height: 25px; }
+}
+
+/* Voice Controls */
+.voice-controls {
+    display: flex;
+    gap: 15px;
+}
+
+.voice-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 15px 25px;
+    border: none;
+    border-radius: 12px;
+    font-size: 1.1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    width: 100%;
+}
+
+.voice-btn.primary {
+    background: linear-gradient(135deg, #4a9eff, #6c63ff);
+    color: white;
+    box-shadow: 0 4px 15px rgba(74, 158, 255, 0.3);
+}
+
+.voice-btn.primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(74, 158, 255, 0.4);
+}
+
+.voice-btn.primary.active {
+    background: linear-gradient(135deg, #ff6b6b, #ff4757);
+    animation: pulse 1.5s infinite;
+}
+
+/* Quick Actions */
+.quick-actions h3 {
+    color: #e0e0e0;
+    margin-bottom: 15px;
+    font-size: 1.1em;
+}
+
+.action-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+.quick-cmd {
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 0.9em;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.quick-cmd:hover {
+    background: rgba(74, 158, 255, 0.2);
+    border-color: #4a9eff;
+    transform: translateY(-1px);
+}
+
+/* Work Area */
+.work-area {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
+}
+
+.daw-selector-panel,
+.ecosystem-panel,
+.command-log {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 15px;
+    padding: 25px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.daw-selector-panel h3,
+.ecosystem-panel h3,
+.command-log h3 {
+    color: #e0e0e0;
+    margin-bottom: 15px;
+    font-size: 1.2em;
+}
+
+/* DAW Options */
+.daw-options {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+}
+
+.daw-option {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.daw-option.active {
+    border-color: #4a9eff;
+    background: rgba(74, 158, 255, 0.2);
+}
+
+.daw-option.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.daw-icon {
+    font-size: 2em;
+    margin-bottom: 10px;
+}
+
+.status {
+    margin-top: 10px;
+    font-size: 0.8em;
+    padding: 4px 8px;
+    border-radius: 12px;
+}
+
+.status.connected {
+    background: rgba(0, 255, 136, 0.2);
+    color: #00ff88;
+}
+
+.status.coming-soon {
+    background: rgba(255, 193, 7, 0.2);
+    color: #ffc107;
+}
+
+/* Ecosystem Grid */
+.ecosystem-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+}
+
+.ecosystem-card {
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    text-align: center;
+}
+
+.card-icon {
+    font-size: 2.5em;
+    margin-bottom: 10px;
+}
+
+.ecosystem-card h4 {
+    color: #4a9eff;
+    margin-bottom: 5px;
+}
+
+.ecosystem-card p {
+    color: #a0a0a0;
+    font-size: 0.9em;
+    margin-bottom: 10px;
+}
+
+/* Command Log */
+.log-container {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.log-entry {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.timestamp {
+    color: #a0a0a0;
+    font-family: monospace;
+    font-size: 0.85em;
+    min-width: 70px;
+}
+
+.command {
+    color: #e0e0e0;
+    flex: 1;
+    font-style: italic;
+}
+
+.result {
+    font-size: 0.85em;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.result.success {
+    color: #00ff88;
+    background: rgba(0, 255, 136, 0.1);
+}
+
+.result.ready {
+    color: #4a9eff;
+    background: rgba(74, 158, 255, 0.1);
+}
+
+/* Enhanced Avatar Styling */
+.avatar-inner {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3em;
+    font-weight: 700;
+    background: linear-gradient(135deg, #4a9eff 0%, #6c63ff 50%, #b06aff 100%);
+    border-radius: 50%;
+    position: relative;
+    overflow: hidden;
+}
+
+.avatar-inner::before {
+    content: 'R';
+    font-size: 2.5em;
+    font-weight: 900;
+    color: white;
+    text-shadow: 0 0 20px rgba(255, 255, 255, 0.8),
+                 0 0 40px rgba(74, 158, 255, 0.6);
+    z-index: 2;
+    position: relative;
+}
+
+.avatar-inner::after {
+    content: '';
+    position: absolute;
+    width: 200%;
+    height: 200%;
+    background: linear-gradient(45deg, 
+        transparent, 
+        rgba(255, 255, 255, 0.1), 
+        transparent);
+    animation: shimmer 3s infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+    100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+}
+
+/* RHEA Avatar Image Display */
+.avatar-inner img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+    position: relative;
+    z-index: 2;
+}
+
+/* Enhanced glow for the actual RHEA image */
+.rhea-avatar:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 50px rgba(74, 158, 255, 0.8);
+}
+
+.rhea-avatar {
+    box-shadow: 0 0 30px rgba(74, 158, 255, 0.4),
+                0 0 60px rgba(108, 99, 255, 0.3),
+                inset 0 0 20px rgba(255, 255, 255, 0.1);
+}

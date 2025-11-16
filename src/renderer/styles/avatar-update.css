@@ -1,0 +1,22 @@
+/* Override avatar to show proper image/text */
+.avatar-inner {
+    background: linear-gradient(135deg, #4a9eff 0%, #6c63ff 50%, #b06aff 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2em;
+    font-weight: 900;
+    color: white;
+    text-shadow: 
+        0 0 10px rgba(255, 255, 255, 0.8),
+        0 0 20px rgba(74, 158, 255, 0.6),
+        0 0 30px rgba(108, 99, 255, 0.4);
+    letter-spacing: 2px;
+}
+
+/* If using SVG */
+.avatar-inner img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}

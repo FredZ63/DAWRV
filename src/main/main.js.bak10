@@ -1,0 +1,384 @@
+const { app, BrowserWindow, ipcMain, session } = require('electron');
+const fs = require('fs');
+const path = require('path');
+const { exec, spawn } = require('child_process');
+const os = require('os');
+
+class DAWRVApp {
+    constructor() {
+        this.mainWindow = null;
+        this.voiceListenerProcess = null;
+        this.isVoiceListening = false;
+        this.voiceCommandFile = '/tmp/dawrv_voice_command.txt';
+        this.lastCommand = '';
+        this.fileWatcherInterval = null;
+    }
+
+    createWindow() {
+        this.mainWindow = new BrowserWindow({
+            width: 1400,
+            height: 900,
+            minWidth: 1000,
+            minHeight: 700,
+            webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true,
+                preload: path.join(__dirname, 'preload.js')
+            },
+            titleBarStyle: 'hiddenInset',
+            backgroundColor: '#1a1a2e',
+            show: false
+        });
+
+        session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+            if (permission === 'media') {
+                callback(true);
+            } else {
+                callback(false);
+            }
+        });
+
+        this.mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+
+        this.mainWindow.once('ready-to-show', () => {
+            this.mainWindow.show();
+            console.log('✅ DAWRV window ready');
+        });
+
+        if (process.argv.includes('--dev')) {
+            this.mainWindow.webContents.openDevTools();
+        }
+
+        this.mainWindow.on('closed', () => {
+            this.mainWindow = null;
+        });
+    }
+
+    startVoiceListener() {
+        if (this.voiceListenerProcess && !this.voiceListenerProcess.killed) {
+            console.log('Voice listener already running');
+            return;
+        }
+
+        // Resolve script path - handle both development and packaged app
+        let scriptPath;
+        if (app.isPackaged) {
+            // In packaged app, scripts are in Resources
+            scriptPath = path.join(process.resourcesPath, 'rhea_voice_listener.py');
+        } else {
+            // In development, use project root
+            scriptPath = path.resolve(__dirname, '../../rhea_voice_listener.py');
+        }
+        
+        console.log('🎤 Starting Python voice listener...');
+        console.log('   Script path:', scriptPath);
+        
+        // Check if file exists
+        if (!fs.existsSync(scriptPath)) {
+            const error = `Voice listener script not found at: ${scriptPath}`;
+            console.error('❌', error);
+            if (this.mainWindow) {
+                this.mainWindow.webContents.send('voice-engine-error', error);
+            }
+            return;
+        }
+        
+        this.voiceListenerProcess = spawn('python3', [scriptPath], {
+            cwd: path.dirname(scriptPath),
+            stdio: ['ignore', 'pipe', 'pipe'],
+            env: { ...process.env, PYTHONUNBUFFERED: '1' } // Ensure unbuffered output
+        });
+
+        // Log process start
+        console.log('✅ Voice listener process spawned, PID:', this.voiceListenerProcess.pid);
+
+        this.voiceListenerProcess.stdout.on('data', (data) => {
+            const output = data.toString();
+            console.log('Voice Listener:', output.trim());
+            
+            // Check for ready status
+            if (output.includes('Ready!') || output.includes('listening') || output.includes('calibrated')) {
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('voice-engine-ready');
+                }
+            }
+        });
+
+        this.voiceListenerProcess.stderr.on('data', (data) => {
+            const error = data.toString();
+            // Don't log Google Cloud warnings as errors
+            if (!error.includes('google-cloud-speech')) {
+                console.error('Voice Listener Error:', error.trim());
+                if (this.mainWindow && !error.includes('Google Cloud')) {
+                    this.mainWindow.webContents.send('voice-engine-error', error.trim());
+                }
+            }
+        });
+
+        this.voiceListenerProcess.on('close', (code) => {
+            console.log(`Voice listener process exited with code ${code}`);
+            const wasListening = this.isVoiceListening;
+            this.voiceListenerProcess = null;
+            this.isVoiceListening = false;
+            
+            if (this.mainWindow) {
+                if (code === 0) {
+                    this.mainWindow.webContents.send('voice-engine-error', 'Voice listener stopped normally');
+                } else {
+                    this.mainWindow.webContents.send('voice-engine-error', `Voice listener crashed (code ${code})`);
+                }
+            }
+            
+            // Auto-restart if it was supposed to be running and crashed
+            if (wasListening && code !== 0) {
+                console.log('🔄 Restarting voice listener in 2 seconds...');
+                setTimeout(() => {
+                    if (this.isVoiceListening === false) { // Only restart if still supposed to be listening
+                        // this.startVoiceListener(); // Disabled - running manually
+                    }
+                }, 2000);
+            }
+        });
+
+        this.voiceListenerProcess.on('error', (error) => {
+            console.error('Failed to start voice listener:', error);
+            this.isVoiceListening = false;
+            if (this.mainWindow) {
+                this.mainWindow.webContents.send('voice-engine-error', `Failed to start: ${error.message}`);
+            }
+        });
+
+        // Verify process is actually running after a short delay
+        setTimeout(() => {
+            if (this.voiceListenerProcess && this.voiceListenerProcess.killed) {
+                console.error('❌ Voice listener process died immediately');
+                this.isVoiceListening = false;
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('voice-engine-error', 'Voice listener failed to start');
+                }
+            } else if (this.voiceListenerProcess) {
+                console.log('✅ Voice listener process is running, PID:', this.voiceListenerProcess.pid);
+            }
+        }, 1000);
+
+        this.isVoiceListening = true;
+    }
+
+    stopVoiceListener() {
+        if (this.voiceListenerProcess && !this.voiceListenerProcess.killed) {
+            console.log('🛑 Stopping voice listener...');
+            this.isVoiceListening = false;
+            try {
+                this.voiceListenerProcess.kill('SIGTERM');
+                // Force kill after 2 seconds if it doesn't stop gracefully
+                setTimeout(() => {
+                    if (this.voiceListenerProcess && !this.voiceListenerProcess.killed) {
+                        console.log('🛑 Force killing voice listener...');
+                        this.voiceListenerProcess.kill('SIGKILL');
+                    }
+                }, 2000);
+            } catch (e) {
+                console.error('Error stopping voice listener:', e);
+            }
+            this.voiceListenerProcess = null;
+        } else {
+            this.isVoiceListening = false;
+        }
+    }
+
+    startFileWatcher() {
+        if (this.fileWatcherInterval) {
+            return; // Already watching
+        }
+
+        console.log('👂 Starting file watcher for voice commands');
+        this.fileWatcherInterval = setInterval(() => {
+            try {
+                if (fs.existsSync(this.voiceCommandFile)) {
+                    const command = fs.readFileSync(this.voiceCommandFile, 'utf8').trim();
+                    // Only process if command exists, is different, and we're listening
+                    if (command && command !== this.lastCommand) {
+                        const commandToProcess = command;
+                        this.lastCommand = commandToProcess;
+                        console.log('📢 Voice command received:', commandToProcess);
+                        
+                        // Clear the file IMMEDIATELY and atomically to prevent re-reading
+                        try {
+                            // Use unlink + write to ensure atomic operation
+                            fs.unlinkSync(this.voiceCommandFile);
+                        } catch (e) {
+                            // If unlink fails, try writing empty string
+                            try {
+                                fs.writeFileSync(this.voiceCommandFile, '');
+                            } catch (e2) {
+                                // Ignore if both fail
+                            }
+                        }
+                        
+                        // Small delay to ensure file is cleared before next check
+                        setTimeout(() => {
+                            // Send command to renderer
+                            if (this.mainWindow) {
+                                this.mainWindow.webContents.send('voice-command', commandToProcess);
+                            }
+                        }, 50);
+                    } else if (command && command === this.lastCommand) {
+                        // If same command is still in file, clear it to prevent re-processing
+                        try {
+                            fs.unlinkSync(this.voiceCommandFile);
+                        } catch (e) {
+                            try {
+                                fs.writeFileSync(this.voiceCommandFile, '');
+                            } catch (e2) {
+                                // Ignore
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                // Ignore file read errors
+            }
+        }, 200); // Check every 200ms for faster response
+    }
+
+    stopFileWatcher() {
+        if (this.fileWatcherInterval) {
+            clearInterval(this.fileWatcherInterval);
+            this.fileWatcherInterval = null;
+        }
+    }
+
+    setupIPC() {
+        ipcMain.handle('start-voice-listening', async () => {
+            try {
+                if (!this.voiceListenerProcess || this.voiceListenerProcess.killed) {
+                    // this.startVoiceListener(); // Disabled - running manually
+                }
+                this.startFileWatcher();
+                console.log('✅ Voice listening started by user');
+                return { success: true };
+            } catch (error) {
+                console.error('Failed to start voice listening:', error);
+                return { success: false, error: error.message };
+            }
+        });
+
+        ipcMain.handle('stop-voice-listening', async () => {
+            try {
+                this.stopVoiceListener();
+                this.stopFileWatcher();
+                console.log('✅ Voice listening stopped');
+                return { success: true };
+            } catch (error) {
+                console.error('Failed to stop voice listening:', error);
+                return { success: false, error: error.message };
+            }
+        });
+
+        ipcMain.handle('send-daw-command', async (event, command, params) => {
+            console.log('DAW Command:', command, params);
+            return { success: true, message: 'Command executed' };
+        });
+
+        ipcMain.handle('execute-reaper-action', async (event, actionId) => {
+            console.log('Executing REAPER action:', actionId);
+            
+            return new Promise((resolve) => {
+                // Use Python bridge script - handle both development and packaged app
+                let bridgeScript;
+                if (app.isPackaged) {
+                    bridgeScript = path.join(process.resourcesPath, 'reaper_bridge.py');
+                } else {
+                    bridgeScript = path.resolve(__dirname, '../../../reaper_bridge.py');
+                }
+                
+                // Fallback to direct REAPER command if bridge doesn't exist
+                let command;
+                if (fs.existsSync(bridgeScript)) {
+                    command = `python3 "${bridgeScript}" ${actionId}`;
+                    console.log('Using REAPER bridge script');
+                } else {
+                    // Direct REAPER command (less reliable)
+                    const homeDir = os.homedir();
+                    const scriptPath = path.join(homeDir, 'Library/Application Support/REAPER/Scripts/RHEA');
+                    const executeScript = path.join(scriptPath, 'execute_action.lua');
+                    command = `/Applications/REAPER.app/Contents/MacOS/reaper -nonewinst "${executeScript}" ${actionId}`;
+                    console.log('Using direct REAPER command');
+                }
+                
+                console.log('Running REAPER command:', command);
+                console.log('Action ID:', actionId);
+                
+                exec(command, { timeout: 5000 }, (error, stdout, stderr) => {
+                    if (error) {
+                        // Check if it's a timeout (which might be OK for REAPER)
+                        if (error.signal === 'SIGTERM' || error.code === null) {
+                            console.log('✅ REAPER action sent (timeout expected):', actionId);
+                            resolve({ success: true });
+                            return;
+                        }
+                        
+                        // Check error code
+                        if (error.code === 0) {
+                            // Exit code 0 means success
+                            console.log('✅ REAPER action executed:', actionId);
+                            resolve({ success: true });
+                            return;
+                        }
+                        
+                        console.error('REAPER command error:', error);
+                        console.error('stderr:', stderr);
+                        console.error('stdout:', stdout);
+                        resolve({ success: false, error: error.message });
+                        return;
+                    }
+                    
+                    // Success
+                    console.log('✅ REAPER action executed:', actionId);
+                    if (stdout) console.log('stdout:', stdout.trim());
+                    if (stderr && !stderr.includes('opening project')) {
+                        console.log('stderr:', stderr.trim());
+                    }
+                    resolve({ success: true });
+                });
+            });
+        });
+
+        // Don't auto-start - wait for user to click "Start Listening"
+        // Just mark voice engine as ready
+        setTimeout(() => {
+            if (this.mainWindow) {
+                this.mainWindow.webContents.send('voice-engine-ready');
+                console.log('✅ Voice engine ready (waiting for user to start)');
+            }
+        }, 500);
+    }
+}
+
+const dawrvApp = new DAWRVApp();
+
+app.whenReady().then(() => {
+    dawrvApp.createWindow();
+    dawrvApp.setupIPC();
+});
+
+app.on('window-all-closed', () => {
+    dawrvApp.stopVoiceListener();
+    dawrvApp.stopFileWatcher();
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
+});
+
+app.on('before-quit', () => {
+    dawrvApp.stopVoiceListener();
+    dawrvApp.stopFileWatcher();
+});
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        dawrvApp.createWindow();
+    }
+});
+
+console.log('🚀 DAWRV Starting...');

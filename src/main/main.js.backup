@@ -1,0 +1,89 @@
+const { app, BrowserWindow, ipcMain } = require('electron');
+const path = require('path');
+
+class DAWRVApp {
+    constructor() {
+        this.mainWindow = null;
+    }
+
+    createWindow() {
+        this.mainWindow = new BrowserWindow({
+            width: 1400,
+            height: 900,
+            minWidth: 1000,
+            minHeight: 700,
+            webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true,
+                preload: path.join(__dirname, 'preload.js')
+            },
+            titleBarStyle: 'hiddenInset',
+            backgroundColor: '#1a1a2e',
+            show: false
+        });
+
+        this.mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+
+        this.mainWindow.once('ready-to-show', () => {
+            this.mainWindow.show();
+            console.log('✅ DAWRV window ready');
+        });
+
+        // Development tools
+        if (process.argv.includes('--dev')) {
+            this.mainWindow.webContents.openDevTools();
+        }
+
+        this.mainWindow.on('closed', () => {
+            this.mainWindow = null;
+        });
+    }
+
+    setupIPC() {
+        // Voice control (simulated for now)
+        ipcMain.handle('start-voice-listening', () => {
+            console.log('Voice listening started (simulated)');
+            return true;
+        });
+
+        ipcMain.handle('stop-voice-listening', () => {
+            console.log('Voice listening stopped');
+            return true;
+        });
+
+        // DAW commands (simulated)
+        ipcMain.handle('send-daw-command', async (event, command, params) => {
+            console.log('DAW Command:', command, params);
+            return { success: true, message: 'Command executed' };
+        });
+
+        // Send ready signal after 1 second
+        setTimeout(() => {
+            if (this.mainWindow) {
+                this.mainWindow.webContents.send('voice-engine-ready');
+                console.log('✅ Voice engine ready (simulated)');
+            }
+        }, 1000);
+    }
+}
+
+const dawrvApp = new DAWRVApp();
+
+app.whenReady().then(() => {
+    dawrvApp.createWindow();
+    dawrvApp.setupIPC();
+});
+
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
+});
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        dawrvApp.createWindow();
+    }
+});
+
+console.log('🚀 DAWRV Starting...');

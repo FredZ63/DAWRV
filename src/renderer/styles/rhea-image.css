@@ -1,0 +1,94 @@
+/* RHEA Image Display - Clean Circle */
+.rhea-avatar {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    overflow: hidden;
+    border: 3px solid #4a9eff;
+    box-shadow: 0 0 30px rgba(74, 158, 255, 0.6),
+                0 0 50px rgba(108, 99, 255, 0.4),
+                inset 0 0 20px rgba(74, 158, 255, 0.2);
+    transition: all 0.3s ease;
+}
+
+.rhea-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+    position: relative;
+    z-index: 2;
+}
+
+/* Remove any text overlays */
+.avatar-inner {
+    display: none !important;
+}
+
+/* Glow animation for avatar */
+.avatar-glow {
+    position: absolute;
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(74, 158, 255, 0.3), transparent);
+    animation: glow-pulse 3s infinite;
+    z-index: 1;
+}
+
+@keyframes glow-pulse {
+    0%, 100% { 
+        opacity: 0.6; 
+        transform: scale(1);
+        box-shadow: 0 0 20px rgba(74, 158, 255, 0.6);
+    }
+    50% { 
+        opacity: 1; 
+        transform: scale(1.05);
+        box-shadow: 0 0 40px rgba(74, 158, 255, 0.8);
+    }
+}
+
+/* When RHEA is listening */
+.rhea-avatar.listening {
+    border-color: #ff6b6b;
+    box-shadow: 0 0 30px rgba(255, 107, 107, 0.6),
+                0 0 50px rgba(255, 107, 107, 0.4);
+    animation: listening-pulse 1s infinite;
+}
+
+@keyframes listening-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+}
+
+/* When RHEA is speaking */
+.rhea-avatar.speaking {
+    border-color: #6c63ff;
+    box-shadow: 0 0 30px rgba(108, 99, 255, 0.8),
+                0 0 50px rgba(108, 99, 255, 0.6);
+    animation: speaking-pulse 0.5s infinite;
+}
+
+@keyframes speaking-pulse {
+    0%, 100% { 
+        transform: scale(1);
+        filter: brightness(1);
+    }
+    50% { 
+        transform: scale(1.03);
+        filter: brightness(1.2);
+    }
+}
+
+/* Hover effect */
+.rhea-avatar:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 40px rgba(74, 158, 255, 0.8),
+                0 0 60px rgba(108, 99, 255, 0.6);
+}

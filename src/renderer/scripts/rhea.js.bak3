@@ -1,0 +1,238 @@
+class RHEAController {
+    constructor() {
+        this.status = 'ready';
+        this.isListening = false;
+        this.reaperActions = {
+            'play': 1007,
+            'stop': 1016,
+            'record': 1013,
+            'undo': 40029,
+            'save': 40026,
+            'newtrack': 40001
+        };
+        this.initElements();
+        this.initListeners();
+    }
+
+    initElements() {
+        this.statusIndicator = document.getElementById('rhea-status');
+        this.statusText = document.getElementById('status-text');
+        this.audioViz = document.getElementById('audio-viz');
+        this.voiceToggle = document.getElementById('voice-toggle');
+        console.log('Elements initialized');
+    }
+
+    initListeners() {
+        if (this.voiceToggle) {
+            this.voiceToggle.addEventListener('click', () => {
+                console.log('Voice button clicked!');
+                this.toggleVoice();
+            });
+        }
+
+        document.querySelectorAll('.quick-cmd').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const cmd = e.target.dataset.command;
+                this.executeQuick(cmd);
+            });
+        });
+
+        setTimeout(() => {
+            this.updateStatus('ready', 'Ready to assist');
+            document.getElementById('connection-status').textContent = '🟢 Ready (Demo)';
+            document.getElementById('voice-engine-status').textContent = '🟢 Ready';
+        }, 1000);
+    }
+
+    toggleVoice() {
+        if (!this.isListening) {
+            this.startListening();
+        } else {
+            this.stopListening();
+        }
+    }
+
+    startListening() {
+        console.log('Starting to listen');
+        this.isListening = true;
+        this.updateStatus('listening', 'Listening...');
+        this.voiceToggle.classList.add('active');
+        this.voiceToggle.querySelector('.btn-text').textContent = 'Stop Listening';
+        this.voiceToggle.querySelector('.btn-icon').textContent = '🔴';
+        
+        if (this.audioViz) {
+            this.audioViz.classList.add('active');
+        }
+
+        setTimeout(() => {
+            this.processCommand('play the project');
+        }, 2000);
+    }
+
+    stopListening() {
+        console.log('Stopping listening');
+        this.isListening = false;
+        this.updateStatus('ready', 'Ready to assist');
+        this.voiceToggle.classList.remove('active');
+        this.voiceToggle.querySelector('.btn-text').textContent = 'Start Listening';
+        this.voiceToggle.querySelector('.btn-icon').textContent = '🎤';
+        
+        if (this.audioViz) {
+            this.audioViz.classList.remove('active');
+        }
+    }
+
+    updateStatus(status, message) {
+        this.status = status;
+        if (this.statusText) {
+            this.statusText.textContent = message;
+        }
+        if (this.statusIndicator) {
+            this.statusIndicator.className = 'status-indicator ' + status;
+        }
+        
+        const avatar = document.querySelector('.rhea-avatar');
+        if (avatar) {
+            avatar.className = 'rhea-avatar ' + status;
+        }
+    }
+
+    async processCommand(transcript) {
+        console.log('Processing:', transcript);
+        this.logCommand(transcript);
+        this.updateStatus('processing', 'Processing...');
+        
+        const lower = transcript.toLowerCase();
+        let action = null;
+        let response = '';
+
+        // Determine action and response
+        if (lower.includes('play')) {
+            action = 'play';
+            response = 'Starting playback';
+        } else if (lower.includes('stop')) {
+            action = 'stop';
+            response = 'Stopping playback';
+        } else if (lower.includes('record')) {
+            action = 'record';
+            response = 'Recording started';
+        } else if (lower.includes('undo')) {
+            action = 'undo';
+            response = 'Undoing last action';
+        } else if (lower.includes('save')) {
+            action = 'save';
+            response = 'Saving project';
+        } else if (lower.includes('new track') || lower.includes('add track')) {
+            action = 'newtrack';
+            response = 'Creating new track';
+        } else {
+            response = 'Command received';
+        }
+
+        // Execute REAPER command if action exists
+        if (action && window.api && window.api.executeReaperAction) {
+            try {
+                const actionId = this.reaperActions[action];
+                const result = await window.api.executeReaperAction(actionId);
+                
+                if (result.success) {
+                    this.logResult(transcript, 'success');
+                    this.speak(response);
+                } else {
+                    this.logResult(transcript, 'error');
+                    this.speak('Failed to execute command');
+                }
+            } catch (error) {
+                console.error('REAPER command error:', error);
+                this.logResult(transcript, 'error');
+                this.speak('Command failed');
+            }
+        } else {
+            // Fallback for demo mode
+            setTimeout(() => {
+                this.logResult(transcript, 'success');
+                this.speak(response);
+            }, 500);
+        }
+
+        setTimeout(() => {
+            if (this.isListening) {
+                this.updateStatus('listening', 'Listening...');
+            } else {
+                this.updateStatus('ready', 'Ready to assist');
+            }
+        }, 2000);
+    }
+
+    speak(text) {
+        console.log('RHEA says:', text);
+        if (window.speechSynthesis) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.9;
+            utterance.pitch = 1.1;
+            
+            utterance.onstart = () => {
+                const avatar = document.querySelector('.rhea-avatar');
+                if (avatar) avatar.classList.add('speaking');
+            };
+            
+            utterance.onend = () => {
+                const avatar = document.querySelector('.rhea-avatar');
+                if (avatar) avatar.classList.remove('speaking');
+            };
+            
+            window.speechSynthesis.speak(utterance);
+        }
+    }
+
+    executeQuick(command) {
+        console.log('Quick command:', command);
+        this.updateStatus('responding', 'Executing...');
+        
+        setTimeout(() => {
+            this.logResult(command, 'success');
+            this.speak(command + ' executed');
+            setTimeout(() => this.updateStatus('ready', 'Ready to assist'), 1000);
+        }, 500);
+    }
+
+    logCommand(cmd) {
+        const log = document.getElementById('command-log');
+        if (!log) return;
+        
+        const time = new Date().toLocaleTimeString();
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.innerHTML = '<span class="timestamp">' + time + '</span>' +
+                         '<span class="command">"' + cmd + '"</span>' +
+                         '<span class="result processing">⏳ Processing</span>';
+        
+        log.insertBefore(entry, log.firstChild);
+        
+        while (log.children.length > 50) {
+            log.removeChild(log.lastChild);
+        }
+    }
+
+    logResult(cmd, status) {
+        const log = document.getElementById('command-log');
+        if (!log || !log.firstChild) return;
+        
+        const resultSpan = log.firstChild.querySelector('.result');
+        if (resultSpan) {
+            if (status === 'success') {
+                resultSpan.innerHTML = '✓ Executed';
+                resultSpan.className = 'result success';
+            } else {
+                resultSpan.innerHTML = '✗ Failed';
+                resultSpan.className = 'result error';
+            }
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('Initializing RHEA...');
+    window.rhea = new RHEAController();
+    console.log('RHEA ready!');
+});
