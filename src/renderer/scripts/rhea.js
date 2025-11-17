@@ -130,7 +130,7 @@ class RHEAController {
         // Feedback suppression
         this.isSpeaking = false; // Track when RHEA is speaking
         this.speechEndTime = 0; // Track when speech ended
-        this.speechCooldown = 1500; // Ignore commands for 1.5 seconds after speech ends (balanced for speed vs feedback prevention)
+        this.speechCooldown = 800; // Ignore commands for 0.8 seconds after speech ends (fast response, minimal feedback risk)
         
         // Subscribe to DAW state updates (transport position, playing, etc.)
         try {
@@ -2143,13 +2143,19 @@ class RHEAController {
                     }
                 } else if (action === 'hidemixer' || action === 'closemixer') {
                     // CLOSE: Only toggle if currently visible
+                    console.log('🎛️ Close mixer command detected');
+                    console.log('🎛️ Current mixerVisible state:', this.mixerVisible);
                     if (this.mixerVisible) {
                         shouldToggle = true;
                         this.mixerVisible = false;
                         actionMessage = 'Closing mixer';
+                        console.log('🎛️ Will toggle to close mixer');
                     } else {
-                        console.log('🎛️ Mixer already hidden');
-                        return { success: true, message: 'Mixer already closed', context: {} };
+                        console.log('🎛️ Mixer state says already hidden - but forcing toggle anyway to ensure closure');
+                        // Force toggle even if state says hidden - in case state is wrong
+                        shouldToggle = true;
+                        this.mixerVisible = false;
+                        actionMessage = 'Closing mixer';
                     }
                 } else {
                     // TOGGLE: Always flip
