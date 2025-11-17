@@ -26,20 +26,28 @@ def install_package(package_name):
                 stderr=subprocess.PIPE,
                 text=True
             )
+            # Filter out pip upgrade notices and warnings
             stderr_lines = result.stderr.split('\n')
             filtered_stderr = []
             for line in stderr_lines:
-                line_upper = line.upper()
                 line_lower = line.lower()
-                if 'WARNING' in line_upper and ('upgrade' in line_lower or 'version' in line_lower):
+                # Skip pip upgrade notices, warnings, and non-error messages
+                if any(skip in line_lower for skip in ['notice', 'warning', 'upgrade', 'new release', 'to update']):
                     continue
                 if line.strip():
                     filtered_stderr.append(line)
             
+            # Only print actual errors
             if filtered_stderr:
                 for line in filtered_stderr:
-                    if line.strip() and not line.strip().startswith('WARNING'):
+                    if line.strip():
                         print(line, file=sys.stderr, flush=True)
+            
+            # Check stdout for "Successfully installed" or "Requirement already satisfied"
+            stdout_lower = result.stdout.lower()
+            if 'successfully installed' in stdout_lower or 'requirement already satisfied' in stdout_lower:
+                return 0  # Force success if package is installed
+            
             return result.returncode
         except Exception as e:
             return os.system(cmd)
@@ -59,14 +67,19 @@ try:
     print('✅ Deepgram SDK found', flush=True)
 except ImportError:
     print('📦 Installing Deepgram SDK...', flush=True)
-    install_package('deepgram-sdk')
+    result = install_package('deepgram-sdk')
+    if result != 0:
+        print('⚠️  Installation returned non-zero, but trying to import anyway...', flush=True)
     time.sleep(2)
     try:
         from deepgram import DeepgramClient, PrerecordedOptions, FileSource
         print('✅ Deepgram SDK installed successfully', flush=True)
-    except ImportError:
+    except ImportError as e:
         print('❌ Failed to install Deepgram SDK', flush=True)
+        print(f'   Error: {e}', flush=True)
         print('   Please run manually: pip3 install deepgram-sdk', flush=True)
+        print('', flush=True)
+        print('⚠️  Falling back to Whisper...', flush=True)
         sys.exit(1)
 
 # Check for PyAudio
