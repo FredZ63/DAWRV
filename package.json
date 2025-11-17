@@ -5,8 +5,8 @@
   "description": "AI-powered voice control platform featuring RHEA - Responsive Heuristic Environment Assistant",
   "main": "src/main/main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev",
+    "start": "DEEPGRAM_API_KEY=$DEEPGRAM_API_KEY electron .",
+    "dev": "DEEPGRAM_API_KEY=$DEEPGRAM_API_KEY electron . --dev",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "build:mac:dmg": "electron-builder --mac dmg",
