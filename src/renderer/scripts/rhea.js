@@ -2722,14 +2722,23 @@ class RHEAController {
         // Immediately show processing status
         this.updateStatus('processing', 'Processing...');
         
-        // Try AI agent first if available and enabled
+        // OPTIMIZATION: Try keyword matching FIRST for instant response
+        // Only use AI as fallback for unrecognized commands
         let match = null;
         let aiResponse = null;
         let aiFallbackMessage = null;
         
-        if (this.useAI && this.aiAgent) {
+        console.log('🔍 Trying keyword matching first (for instant response)...');
+        match = this.matchCommand(transcript);
+        
+        // If keyword matching found a command, skip AI completely
+        if (match && match.action) {
+            console.log('✅ Keyword match found! Skipping AI for instant execution');
+            console.log('   Action:', match.action, 'Confidence: HIGH (keyword match)');
+        } else if (this.useAI && this.aiAgent) {
+            // Only use AI if keyword matching failed
             try {
-                console.log('🤖 Using AI agent to process command...');
+                console.log('🤖 No keyword match - trying AI agent as fallback...');
                 aiResponse = await this.aiAgent.processInput(transcript, this.reaperActions);
                 
                 if (aiResponse && aiResponse.action) {
@@ -2780,15 +2789,12 @@ class RHEAController {
                     }
                 }
                 
-                // Fall through to keyword matching
+                // Fall through - match is already null if AI failed
             }
         }
         
-        // Fallback to keyword matching if AI didn't find an action
-        if (!match) {
-            console.log('🔍 Using keyword matching...');
-            match = this.matchCommand(transcript);
-        }
+        // match already set from keyword matching above or AI
+        // No need for duplicate matchCommand() call here
         
         const { action, response } = match;
         
