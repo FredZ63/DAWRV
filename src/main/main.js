@@ -411,41 +411,23 @@ class DAWRVApp {
         }
         
         // Find python3 executable - use absolute path first (most reliable)
-        let pythonCmd = '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3';
+        // Fast Python detection - check common paths directly (no execSync)
+        const possiblePythonPaths = [
+            '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
+            '/usr/bin/python3',
+            '/usr/local/bin/python3',
+            '/opt/homebrew/bin/python3'
+        ];
         
-        // Verify this Python exists, if not try to find it
-        if (!fs.existsSync(pythonCmd)) {
-            console.warn('   Primary Python path not found, searching...');
-            const possiblePythonPaths = [
-                '/usr/bin/python3',
-                '/usr/local/bin/python3',
-                '/opt/homebrew/bin/python3',
-                'python3'
-            ];
-            
-            // Check which python3 is available
-            for (const pythonPath of possiblePythonPaths) {
-                try {
-                    const testResult = execSync(`which ${pythonPath} 2>/dev/null || echo ""`, { encoding: 'utf8', timeout: 1000 });
-                    if (testResult.trim()) {
-                        pythonCmd = testResult.trim();
-                        console.log('   Using Python:', pythonCmd);
-                        break;
-                    }
-                } catch (e) {
-                    // Try next path
-                    continue;
-                }
+        let pythonCmd = 'python3'; // Fallback
+        for (const pythonPath of possiblePythonPaths) {
+            if (fs.existsSync(pythonPath)) {
+                pythonCmd = pythonPath;
+                break;
             }
-        } else {
-            console.log('   Using Python:', pythonCmd);
         }
         
-        console.log('📞 About to spawn Python process...');
-        console.log('   Command:', pythonCmd);
-        console.log('   Args:', [scriptPath]);
-        console.log('   CWD:', path.dirname(scriptPath));
-        console.log('   Full command:', `${pythonCmd} "${scriptPath}"`);
+        console.log('🎤 Starting voice listener:', scriptPath);
         
         // Capture all output before process exits
         let stdoutBuffer = '';

@@ -8,32 +8,21 @@ import os
 import asyncio
 import time
 
-print('🎤 RHEA Voice Listener (Deepgram Nova-2) Starting...', flush=True)
+print('🎤 Starting Deepgram Nova-2...', flush=True)
 
 # Check for Deepgram API Key FIRST (before imports)
 DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY")
 if not DEEPGRAM_API_KEY:
-    print('❌ DEEPGRAM_API_KEY environment variable not set.', file=sys.stderr, flush=True)
-    print('   Falling back to Whisper. Please set the key to use Deepgram.', file=sys.stderr, flush=True)
+    print('❌ DEEPGRAM_API_KEY not set', file=sys.stderr, flush=True)
     sys.exit(1)
 
-# Now try to import Deepgram SDK
+# Fast imports - no verbose messages during startup
 try:
     from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
-    print('✅ Deepgram SDK v5+ found', flush=True)
-except ImportError:
-    print('❌ Deepgram SDK not found or wrong version', file=sys.stderr, flush=True)
-    print('   Please run: pip3 install deepgram-sdk', file=sys.stderr, flush=True)
-    sys.exit(1)
-
-# Import other dependencies
-try:
     import pyaudio
     import numpy as np
-    print('✅ PyAudio and NumPy found', flush=True)
 except ImportError as e:
-    print(f'❌ Missing dependency: {e}', file=sys.stderr, flush=True)
-    print('   Please run: pip3 install pyaudio numpy', file=sys.stderr, flush=True)
+    print(f'❌ Missing: {e}', file=sys.stderr, flush=True)
     sys.exit(1)
 
 # Audio recording parameters
@@ -67,9 +56,8 @@ async def listen_and_transcribe():
     try:
         deepgram = DeepgramClient(DEEPGRAM_API_KEY)
         dg_connection = deepgram.listen.live.v("1")
-        print('✅ Deepgram client connected!', flush=True)
     except Exception as e:
-        print(f'❌ Failed to connect to Deepgram: {e}', file=sys.stderr, flush=True)
+        print(f'❌ Connection failed: {e}', file=sys.stderr, flush=True)
         stream.stop_stream()
         stream.close()
         p.terminate()
