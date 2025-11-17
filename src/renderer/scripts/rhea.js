@@ -1757,6 +1757,47 @@ class RHEAController {
     }
     
     /**
+     * Detect if a query is conversational (vs command-oriented)
+     */
+    isConversationalQuery(text) {
+        const lower = text.toLowerCase().trim();
+        
+        // Conversational patterns (questions, greetings, troubleshooting, meta-queries)
+        const conversationalPatterns = [
+            // Questions about RHEA's state or capability
+            /\b(are you|can you|do you|did you|will you|would you)\b/i,
+            /\b(what('s| is)?|why|how|when|where)\b.*\b(you|wrong|happened|happen|working|listening|hearing|understanding)\b/i,
+            
+            // Greetings and politeness
+            /^(hi|hello|hey|thank you|thanks|good morning|good afternoon|good evening|excuse me)\b/i,
+            
+            // Meta queries (about RHEA or commands)
+            /\b(help|what can you do|show me|tell me about|explain)\b/i,
+            
+            // Trouble shooting
+            /\b(not working|didn't work|nothing happened|no change|issue|problem|error)\b/i,
+            /\b(listen|hear|understand|recognize)\b/i,
+            
+            // Status checks
+            /\b(status|ready|available|online)\b/i,
+            
+            // Confirmation and clarification
+            /\b(okay|ok|sure|yes|no|right|correct|understand)\b/i
+        ];
+        
+        // Check if any conversational pattern matches
+        const isConversational = conversationalPatterns.some(pattern => pattern.test(lower));
+        
+        // Also check if it's NOT a command-like pattern
+        // Commands usually start with verbs like "play", "stop", "set", "go", etc.
+        const commandVerbs = /^(play|stop|pause|record|rewind|go|set|change|adjust|increase|decrease|mute|solo|loop|add|create|delete|remove|save|open|zoom|toggle|nudge)/i;
+        const seemsLikeCommand = commandVerbs.test(lower);
+        
+        // Return true only if it's conversational AND doesn't seem like a command
+        return isConversational && !seemsLikeCommand;
+    }
+    
+    /**
      * Process track control commands
      */
     async processTrackCommand(action, text) {
@@ -2268,9 +2309,25 @@ class RHEAController {
                     console.log('🤖 AI determined action:', match.action, 'Confidence:', match.confidence);
                     console.log('🤖 AI reasoning:', aiResponse.reasoning);
                 } else if (aiResponse && aiResponse.text) {
-                    // AI provided conversational response (no action) - remember but don't exit yet
-                    console.log('🤖 AI response (no action, will fallback to keywords):', aiResponse.text);
-                    aiFallbackMessage = aiResponse.text;
+                    // AI provided conversational response (no action)
+                    console.log('💬 AI conversational response:', aiResponse.text);
+                    
+                    // Check if this is truly conversational (questions, greetings, troubleshooting)
+                    const isConversational = this.isConversationalQuery(transcript);
+                    
+                    if (isConversational) {
+                        // Pure conversation - speak directly and exit
+                        console.log('💬 Pure conversational query detected - speaking AI response');
+                        this.speak(aiResponse.text);
+                        this.updateStatus('ready', aiResponse.text);
+                        this.logResult(transcript, 'success');
+                        this.isProcessingCommand = false;
+                        return;
+                    } else {
+                        // Possible command - save AI response but try keyword matching as fallback
+                        console.log('🤖 AI response (no action, will fallback to keywords):', aiResponse.text);
+                        aiFallbackMessage = aiResponse.text;
+                    }
                 }
             } catch (error) {
                 console.error('❌ AI processing failed, falling back to keyword matching:', error);
