@@ -183,7 +183,7 @@ class RHEAController {
             'moving to next track', 'moving to previous track', 'zooming in', 'zooming out',
             'zooming to fit all', 'adding marker', 'moving to next marker', 'moving to previous marker',
             // Mixer commands
-            'toggling mixer', 'toggling mixer window', 'muted master', 'unmuted master', 'master muted',
+            'toggling mixer', 'opening mixer', 'closing mixer', 'toggling mixer window', 'muted master', 'unmuted master', 'master muted',
             'master unmuted', 'master volume increased', 'master volume decreased', 'muted all tracks',
             'unmuted all tracks', 'toggling metronome', 'metronome toggled', 'toggling click',
             // Tempo commands
@@ -2130,29 +2130,17 @@ class RHEAController {
                 let shouldToggle = false;
                 let actionMessage = 'Mixer window';
                 
+                // Simplified: Always toggle on command, track state for feedback only
+                shouldToggle = true;
+                
                 if (action === 'showmixer' || action === 'openmixer') {
-                    // Only toggle if mixer is currently hidden
-                    if (!this.mixerVisible) {
-                        shouldToggle = true;
-                        this.mixerVisible = true;
-                        actionMessage = 'Opening mixer';
-                    } else {
-                        console.log('🎛️ Mixer already visible, no action needed');
-                        return { success: true, message: 'Mixer already open', context: {} };
-                    }
+                    this.mixerVisible = !this.mixerVisible; // Flip state
+                    actionMessage = 'Opening mixer';
                 } else if (action === 'hidemixer' || action === 'closemixer') {
-                    // Only toggle if mixer is currently visible
-                    if (this.mixerVisible) {
-                        shouldToggle = true;
-                        this.mixerVisible = false;
-                        actionMessage = 'Closing mixer';
-                    } else {
-                        console.log('🎛️ Mixer already hidden, no action needed');
-                        return { success: true, message: 'Mixer already closed', context: {} };
-                    }
+                    this.mixerVisible = !this.mixerVisible; // Flip state
+                    actionMessage = 'Closing mixer';
                 } else {
-                    // Toggle or mixerwindow - always toggle and flip state
-                    shouldToggle = true;
+                    // Toggle - flip state
                     this.mixerVisible = !this.mixerVisible;
                     actionMessage = this.mixerVisible ? 'Opening mixer' : 'Closing mixer';
                 }

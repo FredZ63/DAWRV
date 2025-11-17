@@ -292,10 +292,12 @@ write_cooldown = 2.0  # Don't write same command within 2 seconds
 
 while True:
     try:
-        # Record audio
+        # Record audio (mic is ACTIVE during this)
         audio_data = record_audio()
         
-        # Transcribe with Whisper
+        # Transcribe with Whisper (mic is PAUSED during this - Whisper processes synchronously)
+        if audio_data is not None:
+            print('🔄 Processing speech... (mic paused for 1-2 seconds)', flush=True)
         text = transcribe_audio(audio_data)
         
         if text and len(text) > 0:
