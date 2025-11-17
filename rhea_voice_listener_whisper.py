@@ -120,26 +120,26 @@ def urlopen_with_ssl_fix(*args, **kwargs):
     return original_urlopen(*args, **kwargs)
 urllib.request.urlopen = urlopen_with_ssl_fix
 
-# Load Whisper model - use small model for better accuracy with DAW commands
+# Load Whisper model - use medium model for maximum accuracy
 # Options: tiny, base, small, medium, large
-# 'small' is recommended for command recognition - more accurate than base, still fast
+# 'medium' provides the best balance of accuracy and speed for voice commands
 try:
-    model = whisper.load_model("small")
-    print('✅ Whisper "small" model loaded! (Better accuracy)', flush=True)
+    model = whisper.load_model("medium")
+    print('✅ Whisper "medium" model loaded! (Maximum accuracy)', flush=True)
 except Exception as e:
-    print(f'⚠️  Failed to load small model: {e}', flush=True)
-    print('   Trying base model as fallback...', flush=True)
+    print(f'⚠️  Failed to load medium model: {e}', flush=True)
+    print('   Trying small model as fallback...', flush=True)
     try:
-        model = whisper.load_model("base")
-        print('✅ Whisper base model loaded!', flush=True)
+        model = whisper.load_model("small")
+        print('✅ Whisper "small" model loaded!', flush=True)
     except Exception as e2:
-        print(f'❌ Failed to load base model: {e2}', flush=True)
-        print('   Trying tiny model as last resort...', flush=True)
+        print(f'❌ Failed to load small model: {e2}', flush=True)
+        print('   Trying base model as last resort...', flush=True)
         try:
-            model = whisper.load_model("tiny")
-            print('✅ Whisper tiny model loaded!', flush=True)
+            model = whisper.load_model("base")
+            print('✅ Whisper base model loaded!', flush=True)
         except Exception as e3:
-            print(f'❌ Failed to load tiny model: {e3}', flush=True)
+            print(f'❌ Failed to load base model: {e3}', flush=True)
         print('', flush=True)
         print('💡 TROUBLESHOOTING:', flush=True)
         print('   1. Check your internet connection (needed for first-time model download)', flush=True)
@@ -157,7 +157,7 @@ CHUNK = 1024
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 16000  # Whisper works best with 16kHz
-RECORD_SECONDS = 5  # Record 5 seconds at a time (longer for complete phrases)
+RECORD_SECONDS = 6  # Record 6 seconds at a time (extra time for slow/careful speech)
 
 try:
     audio = pyaudio.PyAudio()
@@ -186,10 +186,10 @@ def record_audio():
     print('🎧 Listening...', flush=True)
     frames = []
     
-    # Voice activity detection parameters
-    SILENCE_THRESHOLD = 500  # RMS threshold for silence (adjust based on mic)
-    MIN_SPEECH_CHUNKS = 5    # Minimum chunks of speech to consider valid
-    MAX_SILENCE_CHUNKS = 10  # Max silence chunks before stopping
+    # Voice activity detection parameters - tuned for better speech capture
+    SILENCE_THRESHOLD = 300  # RMS threshold for silence (lowered to catch quieter speech)
+    MIN_SPEECH_CHUNKS = 3    # Minimum chunks of speech to consider valid (faster detection)
+    MAX_SILENCE_CHUNKS = 12  # Max silence chunks before stopping (more patience for pauses)
     
     speech_detected = False
     speech_chunks = 0
@@ -229,13 +229,29 @@ def record_audio():
     
     return audio_np
 
+def normalize_audio(audio_data):
+    """Normalize audio levels and reduce noise for better transcription"""
+    # Boost quiet audio and compress loud peaks
+    max_val = np.abs(audio_data).max()
+    if max_val > 0.01:  # Only normalize if there's actual audio
+        # Normalize to 70% of max range (leaves headroom, prevents clipping)
+        audio_data = audio_data * (0.7 / max_val)
+    return audio_data
+
 def transcribe_audio(audio_data):
     """Transcribe audio using Whisper with REAPER-specific optimization"""
     try:
-        # Whisper expects audio at 16kHz, which we're already providing
-        # Add initial_prompt to improve recognition of DAW-specific terms
+        # Normalize audio for consistent levels
+        audio_data = normalize_audio(audio_data)
+        
+        # Expanded vocabulary prompt with more REAPER commands
         # This helps Whisper understand technical audio production vocabulary
-        prompt = "Commands for REAPER: play, stop, record, undo, tempo, BPM, bar, marker, loop, mute, solo, track"
+        prompt = ("REAPER DAW commands: play, stop, record, pause, undo, redo, "
+                  "tempo, BPM, set tempo to, increase tempo, decrease tempo, "
+                  "bar, measure, go to bar, play from bar, loop bars, "
+                  "marker, add marker, next marker, previous marker, "
+                  "mute, unmute, solo, unsolo, track, new track, delete track, "
+                  "save, save as, zoom in, zoom out, rewind, fast forward")
         
         result = model.transcribe(
             audio_data, 
@@ -243,9 +259,10 @@ def transcribe_audio(audio_data):
             task='transcribe',       # Transcribe (not translate)
             initial_prompt=prompt,   # Help with DAW vocabulary
             fp16=False,              # Use FP32 for better accuracy on CPU
-            no_speech_threshold=0.4, # Lower threshold to catch quiet speech
-            logprob_threshold=-0.8,  # More lenient with unclear audio
-            compression_ratio_threshold=1.8  # Allow more natural speech patterns
+            no_speech_threshold=0.3, # Lower threshold to catch very quiet speech
+            logprob_threshold=-1.0,  # Even more lenient with unclear audio
+            compression_ratio_threshold=2.0,  # Allow more natural speech patterns
+            condition_on_previous_text=False  # Don't use previous text (prevents cascading errors)
         )
         text = result['text'].strip()
         return text
