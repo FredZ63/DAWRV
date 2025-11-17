@@ -75,6 +75,38 @@ class RHEAController {
             'decreasetempo': 'tempo_decrease',  // Custom - uses script
             'gettempo': 'tempo_get',  // Custom - uses script
             
+            // Mixer Controls
+            'showmixer': 40078,  // View: Toggle mixer visible
+            'hidemixer': 40078,  // Same action (toggle)
+            'togglemixer': 40078,  // View: Toggle mixer visible
+            'mixerwindow': 40078,
+            'openmixer': 40078,
+            'closemixer': 40078,
+            
+            // Master Track Controls
+            'mastermute': 'master_mute',  // Custom - mute master track
+            'masterunmute': 'master_unmute',  // Custom - unmute master track
+            'togglemastermute': 'master_mute_toggle',  // Custom - toggle master mute
+            'setmastervolume': 'master_volume',  // Custom - set master volume to X%
+            'mastervolumeup': 40036,  // Master track: increase volume by 1 dB
+            'mastervolumedown': 40037,  // Master track: decrease volume by 1 dB
+            'resetmastervolume': 'master_volume_reset',  // Custom - reset to 0dB
+            
+            // All Tracks Controls
+            'resetallfaders': 'reset_all_faders',  // Custom - reset all track volumes
+            'muteall': 40339,  // Track: Mute all tracks
+            'unmuteall': 40340,  // Track: Unmute all tracks
+            'unsololall': 40340,  // Track: Unsolo all tracks
+            'unarmall': 40491,  // Track: Unarm all tracks for recording
+            
+            // Mixer View Options
+            'showmcp': 40075,  // View: Toggle show mixer control panel
+            'hidemcp': 40075,
+            'togglemcp': 40075,
+            'showtcp': 40074,  // View: Toggle show track control panel
+            'hidetcp': 40074,
+            'toggletcp': 40074,
+            
             // Meta commands
             'help': 'show_help'  // Show available commands
         };
@@ -1198,6 +1230,119 @@ class RHEAController {
                 action: 'settrackpan',
                 response: 'Panning track',
                 priority: 8
+            },
+            // Mixer Control Commands
+            {
+                name: 'showmixer',
+                keywords: ['show mixer', 'open mixer', 'display mixer', 'toggle mixer', 'mixer window'],
+                action: 'showmixer',
+                response: 'Toggling mixer',
+                priority: 8
+            },
+            {
+                name: 'hidemixer',
+                keywords: ['hide mixer', 'close mixer'],
+                action: 'hidemixer',
+                response: 'Hiding mixer',
+                priority: 8
+            },
+            {
+                name: 'mastermute',
+                keywords: ['mute master', 'master mute', 'mute main output', 'silence master'],
+                action: 'mastermute',
+                response: 'Muting master',
+                priority: 8
+            },
+            {
+                name: 'masterunmute',
+                keywords: ['unmute master', 'master unmute', 'unmute main output', 'enable master'],
+                action: 'masterunmute',
+                response: 'Unmuting master',
+                priority: 8
+            },
+            {
+                name: 'togglemastermute',
+                keywords: ['toggle master mute', 'toggle mute master'],
+                action: 'togglemastermute',
+                response: 'Toggling master mute',
+                priority: 8
+            },
+            {
+                name: 'setmastervolume',
+                keywords: ['set master volume', 'master volume', 'volume master', 'main volume', 'set main volume'],
+                action: 'setmastervolume',
+                response: 'Setting master volume',
+                priority: 8
+            },
+            {
+                name: 'mastervolumeup',
+                keywords: ['master volume up', 'increase master volume', 'master louder', 'main volume up'],
+                action: 'mastervolumeup',
+                response: 'Increasing master volume',
+                priority: 8
+            },
+            {
+                name: 'mastervolumedown',
+                keywords: ['master volume down', 'decrease master volume', 'master quieter', 'main volume down'],
+                action: 'mastervolumedown',
+                response: 'Decreasing master volume',
+                priority: 8
+            },
+            {
+                name: 'resetmastervolume',
+                keywords: ['reset master volume', 'master volume reset', 'reset main volume'],
+                action: 'resetmastervolume',
+                response: 'Resetting master volume',
+                priority: 8
+            },
+            {
+                name: 'resetallfaders',
+                keywords: ['reset all faders', 'reset all volumes', 'reset faders', 'default volumes'],
+                action: 'resetallfaders',
+                response: 'Resetting all faders',
+                priority: 8
+            },
+            {
+                name: 'muteall',
+                keywords: ['mute all', 'mute all tracks', 'silence all', 'mute everything'],
+                action: 'muteall',
+                response: 'Muting all tracks',
+                priority: 8
+            },
+            {
+                name: 'unmuteall',
+                keywords: ['unmute all', 'unmute all tracks', 'enable all', 'unmute everything'],
+                action: 'unmuteall',
+                response: 'Unmuting all tracks',
+                priority: 8
+            },
+            {
+                name: 'unsoloall',
+                keywords: ['unsolo all', 'unsolo all tracks', 'unsolo everything'],
+                action: 'unsololall',
+                response: 'Unsoloing all tracks',
+                priority: 8
+            },
+            {
+                name: 'unarmall',
+                keywords: ['unarm all', 'unarm all tracks', 'disable recording all', 'unarm everything'],
+                action: 'unarmall',
+                response: 'Unarming all tracks',
+                priority: 8
+            },
+            {
+                name: 'showmcp',
+                keywords: ['show mcp', 'show mixer control panel', 'toggle mcp'],
+                action: 'showmcp',
+                response: 'Toggling mixer control panel',
+                priority: 8
+            },
+            {
+                name: 'showtcp',
+                keywords: ['show tcp', 'show track control panel', 'toggle tcp'],
+                action: 'showtcp',
+                response: 'Toggling track control panel',
+                priority: 8
             }
         ];
         
@@ -1930,6 +2075,85 @@ class RHEAController {
     }
     
     /**
+     * Process mixer control commands
+     */
+    async processMixerCommand(action, text) {
+        try {
+            // Master Track Controls (via OSC)
+            if (action === 'master_mute' || action === 'mastermute') {
+                // Mute master track (track 0 in OSC)
+                const result = await window.api.executeTrackCommand('mute', 0);
+                return result.success ? {
+                    success: true,
+                    message: 'Master muted',
+                    context: { masterMuted: true }
+                } : result;
+            }
+            
+            if (action === 'master_unmute' || action === 'masterunmute') {
+                // Unmute master track (track 0 in OSC)
+                const result = await window.api.executeTrackCommand('unmute', 0);
+                return result.success ? {
+                    success: true,
+                    message: 'Master unmuted',
+                    context: { masterMuted: false }
+                } : result;
+            }
+            
+            if (action === 'master_mute_toggle' || action === 'togglemastermute') {
+                // Toggle master mute (check current state if possible, or just toggle)
+                // For now, we'll use the mute command (OSC will toggle if needed)
+                const result = await window.api.executeTrackCommand('mute', 0);
+                return result.success ? {
+                    success: true,
+                    message: 'Master mute toggled',
+                    context: {}
+                } : result;
+            }
+            
+            if (action === 'master_volume' || action === 'setmastervolume') {
+                // Set master volume to X%
+                const volumePercent = this.extractVolumeValue(text);
+                if (volumePercent === null) {
+                    return { success: false, error: 'Please specify a volume percentage (e.g., "50%")' };
+                }
+                const result = await window.api.executeTrackCommand('volume', 0, volumePercent);
+                return result.success ? {
+                    success: true,
+                    message: `Master volume set to ${volumePercent}%`,
+                    context: { masterVolume: volumePercent }
+                } : result;
+            }
+            
+            if (action === 'master_volume_reset' || action === 'resetmastervolume') {
+                // Reset master volume to 0dB (100% = 1.0 normalized = 0dB)
+                const result = await window.api.executeTrackCommand('volume', 0, 100);
+                return result.success ? {
+                    success: true,
+                    message: 'Master volume reset to 0dB',
+                    context: { masterVolume: 100 }
+                } : result;
+            }
+            
+            if (action === 'reset_all_faders' || action === 'resetallfaders') {
+                // Reset all track volumes to 0dB
+                // We'll need to iterate through all tracks
+                // For now, let's just provide a message (requires DAW state knowledge)
+                return { 
+                    success: false, 
+                    error: 'Reset all faders is not yet implemented. Please reset each track individually.' 
+                };
+            }
+            
+            return { success: false, error: 'Unknown mixer command' };
+            
+        } catch (error) {
+            console.error('Mixer command error:', error);
+            return { success: false, error: error.message || 'Mixer command failed' };
+        }
+    }
+    
+    /**
      * Process plugin discovery commands
      */
     async processPluginCommand(action, text, aiResponse) {
@@ -2410,16 +2634,21 @@ class RHEAController {
         const trackActions = ['selecttrack', 'mutetrack', 'unmutetrack', 'solotrack', 'unsolotrack', 'armtracknum', 'settrackvolume', 'settrackpan'];
         const isTrackCommand = trackActions.includes(action);
         
+        // Check if this is a mixer control command
+        const mixerActions = ['mastermute', 'masterunmute', 'togglemastermute', 'setmastervolume', 'resetmastervolume', 'resetallfaders', 'master_mute', 'master_unmute', 'master_mute_toggle', 'master_volume', 'master_volume_reset', 'reset_all_faders'];
+        const isMixerCommand = mixerActions.includes(action);
+        
         // Check if this is a MIDI 2.0 precise value command
         const midi2Actions = ['setvolume', 'setreverb', 'setpan'];
         const isMIDI2Command = midi2Actions.includes(action);
         
-        const willExecute = action && (this.reaperActions[action] || isMIDI2Command || isPluginCommand || isTempoCommand || isBarCommand || isTrackCommand);
+        const willExecute = action && (this.reaperActions[action] || isMIDI2Command || isPluginCommand || isTempoCommand || isBarCommand || isTrackCommand || isMixerCommand);
         console.log('WILL EXECUTE?', willExecute);
         console.log('IS PLUGIN COMMAND?', isPluginCommand);
         console.log('IS TEMPO COMMAND?', isTempoCommand);
         console.log('IS BAR COMMAND?', isBarCommand);
         console.log('IS TRACK COMMAND?', isTrackCommand);
+        console.log('IS MIXER COMMAND?', isMixerCommand);
         console.log('IS MIDI 2.0 COMMAND?', isMIDI2Command);
         
         // Handle plugin commands
@@ -2521,6 +2750,34 @@ class RHEAController {
                 console.error('Track command error:', error);
                 this.speak('Track command failed');
                 this.updateStatus('error', 'Track command failed');
+                this.logResult(transcript, 'error');
+            } finally {
+                this.isProcessingCommand = false;
+            }
+            return;
+        }
+        
+        // Handle mixer control commands
+        if (isMixerCommand) {
+            try {
+                console.log('🎛️ Processing mixer command:', action);
+                const result = await this.processMixerCommand(action, transcript);
+                if (result.success) {
+                    this.speak(result.message || response);
+                    this.updateStatus('ready', result.message || response);
+                    if (this.aiAgent && result.context) {
+                        this.aiAgent.updateDAWContext(result.context);
+                    }
+                    this.logResult(transcript, 'success');
+                } else {
+                    this.speak(result.error || 'Mixer command failed');
+                    this.updateStatus('error', result.error || 'Mixer command failed');
+                    this.logResult(transcript, 'error');
+                }
+            } catch (error) {
+                console.error('Mixer command error:', error);
+                this.speak('Mixer command failed');
+                this.updateStatus('error', 'Mixer command failed');
                 this.logResult(transcript, 'error');
             } finally {
                 this.isProcessingCommand = false;
