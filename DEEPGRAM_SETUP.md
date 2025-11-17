@@ -188,3 +188,4 @@ DAWRV will automatically use Whisper again.
 
 **Enjoy lightning-fast voice recognition!** ⚡✨
 
+

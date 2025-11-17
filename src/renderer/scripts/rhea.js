@@ -2078,13 +2078,33 @@ class RHEAController {
      * Process mixer control commands
      */
     async processMixerCommand(action, text) {
+        console.log('🎛️ ========================================');
+        console.log('🎛️ processMixerCommand called!');
+        console.log('🎛️ Action:', action);
+        console.log('🎛️ Text:', text);
+        console.log('🎛️ ========================================');
+        
         try {
             // Mixer Visibility Commands (use REAPER action IDs)
             if (action === 'showmixer' || action === 'hidemixer' || action === 'togglemixer' || 
                 action === 'mixerwindow' || action === 'openmixer' || action === 'closemixer') {
+                console.log('🎛️ Matched mixer visibility command:', action);
+                
                 // All these actions map to the same toggle action (40078)
                 const actionId = this.reaperActions[action] || 40078;
+                console.log('🎛️ Action ID:', actionId);
+                console.log('🎛️ window.api exists?', !!window.api);
+                console.log('🎛️ window.api.executeReaperAction exists?', !!(window.api && window.api.executeReaperAction));
+                
+                if (!window.api || !window.api.executeReaperAction) {
+                    console.error('❌ executeReaperAction not available!');
+                    return { success: false, error: 'REAPER action API not available' };
+                }
+                
+                console.log('🎛️ Calling executeReaperAction with ID:', actionId);
                 const result = await window.api.executeReaperAction(actionId);
+                console.log('🎛️ Result:', result);
+                
                 return result.success ? {
                     success: true,
                     message: 'Toggled mixer window',
@@ -2531,6 +2551,25 @@ class RHEAController {
         // Prevent duplicate processing
         const now = Date.now();
         const normalizedCommand = transcript.toLowerCase().trim();
+        
+        // FILTER: Ignore very short transcripts (likely false triggers from noise)
+        if (normalizedCommand.length < 3) {
+            console.log('🔇 Ignoring very short transcript (likely noise):', transcript);
+            return;
+        }
+        
+        // FILTER: Ignore transcripts that are just single letters or numbers
+        if (/^[a-z0-9]$/i.test(normalizedCommand)) {
+            console.log('🔇 Ignoring single character transcript:', transcript);
+            return;
+        }
+        
+        // FILTER: Ignore common ambient sound transcriptions
+        const ambientNoises = ['uh', 'um', 'ah', 'oh', 'mm', 'hm', 'shh', 'psh', 'tsk', 'hmm', 'uhh', 'umm'];
+        if (ambientNoises.includes(normalizedCommand)) {
+            console.log('🔇 Ignoring ambient noise:', transcript);
+            return;
+        }
         
         // FEEDBACK SUPPRESSION: Ignore commands that match RHEA's response phrases
         // Check if the command is similar to any RHEA response phrase

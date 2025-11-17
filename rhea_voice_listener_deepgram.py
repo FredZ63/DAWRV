@@ -94,6 +94,18 @@ async def listen_and_transcribe():
         
         sentence = result.channel.alternatives[0].transcript
         if sentence:
+            # Filter out very short transcripts (likely false triggers)
+            sentence_stripped = sentence.strip()
+            if len(sentence_stripped) < 3:
+                print(f'⏩ Ignoring short transcript (likely noise): "{sentence}"', flush=True)
+                return
+            
+            # Filter out ambient noise words
+            ambient_noises = ['uh', 'um', 'ah', 'oh', 'mm', 'hm', 'shh', 'hmm']
+            if sentence_stripped.lower() in ambient_noises:
+                print(f'⏩ Ignoring ambient noise: "{sentence}"', flush=True)
+                return
+            
             print(f'✅ Heard (Deepgram): "{sentence}"', flush=True)
             
             # Deduplication logic

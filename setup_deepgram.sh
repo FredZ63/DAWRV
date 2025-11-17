@@ -72,3 +72,4 @@ echo ""
 echo "💡 Tip: If you open a new terminal, it will automatically have the API key!"
 echo ""
 
+
