@@ -385,8 +385,9 @@ class DAWRVApp {
             }
         }
         
-        // Determine which voice engine to use (Deepgram preferred, Whisper fallback)
-        const useDeepgram = process.env.DEEPGRAM_API_KEY && process.env.DEEPGRAM_API_KEY.length > 0;
+        // TEMPORARILY force Whisper until Deepgram SDK issue is fixed
+        // The useDeepgram = process.env.DEEPGRAM_API_KEY && process.env.DEEPGRAM_API_KEY.length > 0;
+        const useDeepgram = false; // Forcing Whisper - Deepgram SDK v5.3.0 has import issues
         const scriptFilename = useDeepgram ? 'rhea_voice_listener_deepgram.py' : 'rhea_voice_listener_whisper.py';
         
         console.log('🎤 Voice Engine Selection:');
