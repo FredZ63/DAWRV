@@ -1433,6 +1433,21 @@ ipcMain.handle('execute-track-command', async (event, command, trackNumber, valu
             // OSC format: /track/<trackNum>/<property> <value>
             switch (command) {
                 case 'select':
+                    // For select, we need to deselect all tracks first, then select the target
+                    // Send deselect all first
+                    const deselectSocket = dgram.createSocket('udp4');
+                    let deselectData = Buffer.from('/action/40297\x00\x00', 'utf-8'); // Action 40297 = Unselect all tracks
+                    while (deselectData.length % 4 !== 0) deselectData = Buffer.concat([deselectData, Buffer.from([0])]);
+                    deselectData = Buffer.concat([deselectData, Buffer.from(',\x00\x00\x00', 'utf-8')]);
+                    
+                    deselectSocket.send(deselectData, 8000, '127.0.0.1', (err) => {
+                        deselectSocket.close();
+                        if (err) console.warn('⚠️  Deselect all failed:', err.message);
+                    });
+                    
+                    // Small delay to ensure deselect happens first
+                    setTimeout(() => {}, 50);
+                    
                     oscPath = `/track/${trackNumber}/select`;
                     oscValue = 1;  // 1 = select
                     break;
@@ -1445,6 +1460,21 @@ ipcMain.handle('execute-track-command', async (event, command, trackNumber, valu
                     oscValue = 0;  // 0 = unmute
                     break;
                 case 'solo':
+                    // For exclusive solo, unsolo all tracks first, then solo target
+                    // Action 40340 = Unsolo all tracks
+                    const unsoloSocket = dgram.createSocket('udp4');
+                    let unsoloData = Buffer.from('/action/40340\x00\x00', 'utf-8');
+                    while (unsoloData.length % 4 !== 0) unsoloData = Buffer.concat([unsoloData, Buffer.from([0])]);
+                    unsoloData = Buffer.concat([unsoloData, Buffer.from(',\x00\x00\x00', 'utf-8')]);
+                    
+                    unsoloSocket.send(unsoloData, 8000, '127.0.0.1', (err) => {
+                        unsoloSocket.close();
+                        if (err) console.warn('⚠️  Unsolo all failed:', err.message);
+                    });
+                    
+                    // Small delay to ensure unsolo happens first
+                    setTimeout(() => {}, 50);
+                    
                     oscPath = `/track/${trackNumber}/solo`;
                     oscValue = 1;  // 1 = solo
                     break;
