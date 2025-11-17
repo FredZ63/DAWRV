@@ -1768,8 +1768,12 @@ class RHEAController {
             /\b(are you|can you|do you|did you|will you|would you)\b/i,
             /\b(what('s| is)?|why|how|when|where)\b.*\b(you|wrong|happened|happen|working|listening|hearing|understanding)\b/i,
             
-            // Greetings and politeness
-            /^(hi|hello|hey|thank you|thanks|good morning|good afternoon|good evening|excuse me)\b/i,
+            // Greetings and politeness - match anywhere, not just start
+            /\b(hi|hello|hey|howdy|greetings)\b/i,
+            /\b(thank you|thanks|thank ya|thx|appreciate it|much appreciated)\b/i,
+            /\b(please|excuse me|pardon me)\b/i,
+            /\b(good morning|good afternoon|good evening|good night)\b/i,
+            /\b(goodbye|bye|see ya|later|catch you later)\b/i,
             
             // Meta queries (about RHEA or commands)
             /\b(help|what can you do|show me|tell me about|explain)\b/i,
@@ -1782,7 +1786,10 @@ class RHEAController {
             /\b(status|ready|available|online)\b/i,
             
             // Confirmation and clarification
-            /\b(okay|ok|sure|yes|no|right|correct|understand)\b/i
+            /\b(okay|ok|sure|yes|yeah|yep|no|nope|right|correct|exactly|absolutely)\b/i,
+            
+            // Compliments and feedback
+            /\b(great|good job|nice|well done|perfect|awesome|excellent)\b/i
         ];
         
         // Check if any conversational pattern matches
