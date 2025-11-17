@@ -1434,22 +1434,42 @@ ipcMain.handle('execute-track-command', async (event, command, trackNumber, valu
             switch (command) {
                 case 'select':
                     // For select, we need to deselect all tracks first, then select the target
-                    // Send deselect all first
                     const deselectSocket = dgram.createSocket('udp4');
                     let deselectData = Buffer.from('/action/40297\x00\x00', 'utf-8'); // Action 40297 = Unselect all tracks
                     while (deselectData.length % 4 !== 0) deselectData = Buffer.concat([deselectData, Buffer.from([0])]);
-                    deselectData = Buffer.concat([deselectData, Buffer.from(',\x00\x00\x00', 'utf-8')]);
+                    deselectData = Buffer.concat([deselectData, Buffer.from(',i\x00\x00', 'utf-8')]);
+                    const deselectAction = Buffer.allocUnsafe(4);
+                    deselectAction.writeInt32BE(40297, 0);
+                    deselectData = Buffer.concat([deselectData, deselectAction]);
                     
                     deselectSocket.send(deselectData, 8000, '127.0.0.1', (err) => {
                         deselectSocket.close();
                         if (err) console.warn('⚠️  Deselect all failed:', err.message);
+                        
+                        // After deselect completes, send the select command
+                        setTimeout(() => {
+                            const selectSocket = dgram.createSocket('udp4');
+                            let selectPath = `/track/${trackNumber}/select`;
+                            let selectData = Buffer.from(selectPath + '\x00', 'utf-8');
+                            while (selectData.length % 4 !== 0) selectData = Buffer.concat([selectData, Buffer.from([0])]);
+                            selectData = Buffer.concat([selectData, Buffer.from(',i\x00\x00', 'utf-8')]);
+                            const selectVal = Buffer.allocUnsafe(4);
+                            selectVal.writeInt32BE(1, 0);
+                            selectData = Buffer.concat([selectData, selectVal]);
+                            
+                            selectSocket.send(selectData, 8000, '127.0.0.1', (err2) => {
+                                selectSocket.close();
+                                if (err2) {
+                                    console.error('❌ Select OSC error:', err2);
+                                    resolve({ success: false, error: err2.message });
+                                } else {
+                                    console.log('✅ Track select command sent via OSC');
+                                    resolve({ success: true });
+                                }
+                            });
+                        }, 100); // 100ms delay
                     });
-                    
-                    // Small delay to ensure deselect happens first
-                    setTimeout(() => {}, 50);
-                    
-                    oscPath = `/track/${trackNumber}/select`;
-                    oscValue = 1;  // 1 = select
+                    return; // Exit early, callback handles resolve
                     break;
                 case 'mute':
                     oscPath = `/track/${trackNumber}/mute`;
@@ -1465,18 +1485,40 @@ ipcMain.handle('execute-track-command', async (event, command, trackNumber, valu
                     const unsoloSocket = dgram.createSocket('udp4');
                     let unsoloData = Buffer.from('/action/40340\x00\x00', 'utf-8');
                     while (unsoloData.length % 4 !== 0) unsoloData = Buffer.concat([unsoloData, Buffer.from([0])]);
-                    unsoloData = Buffer.concat([unsoloData, Buffer.from(',\x00\x00\x00', 'utf-8')]);
+                    unsoloData = Buffer.concat([unsoloData, Buffer.from(',i\x00\x00', 'utf-8')]);
+                    // Add action ID as integer
+                    const unsoloAction = Buffer.allocUnsafe(4);
+                    unsoloAction.writeInt32BE(40340, 0);
+                    unsoloData = Buffer.concat([unsoloData, unsoloAction]);
                     
                     unsoloSocket.send(unsoloData, 8000, '127.0.0.1', (err) => {
                         unsoloSocket.close();
                         if (err) console.warn('⚠️  Unsolo all failed:', err.message);
+                        
+                        // After unsolo completes, send the solo command
+                        setTimeout(() => {
+                            const soloSocket = dgram.createSocket('udp4');
+                            let soloPath = `/track/${trackNumber}/solo`;
+                            let soloData = Buffer.from(soloPath + '\x00', 'utf-8');
+                            while (soloData.length % 4 !== 0) soloData = Buffer.concat([soloData, Buffer.from([0])]);
+                            soloData = Buffer.concat([soloData, Buffer.from(',i\x00\x00', 'utf-8')]);
+                            const soloVal = Buffer.allocUnsafe(4);
+                            soloVal.writeInt32BE(1, 0);
+                            soloData = Buffer.concat([soloData, soloVal]);
+                            
+                            soloSocket.send(soloData, 8000, '127.0.0.1', (err2) => {
+                                soloSocket.close();
+                                if (err2) {
+                                    console.error('❌ Solo OSC error:', err2);
+                                    resolve({ success: false, error: err2.message });
+                                } else {
+                                    console.log('✅ Track solo command sent via OSC');
+                                    resolve({ success: true });
+                                }
+                            });
+                        }, 100); // 100ms delay
                     });
-                    
-                    // Small delay to ensure unsolo happens first
-                    setTimeout(() => {}, 50);
-                    
-                    oscPath = `/track/${trackNumber}/solo`;
-                    oscValue = 1;  // 1 = solo
+                    return; // Exit early, callback handles resolve
                     break;
                 case 'unsolo':
                     oscPath = `/track/${trackNumber}/solo`;
