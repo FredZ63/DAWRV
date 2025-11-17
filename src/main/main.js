@@ -1180,73 +1180,42 @@ async function handleTempoCommand(event, command, value) {
             return { success: false, error: 'Invalid tempo value' };
         }
         
-        // Use direct Lua script execution via REAPER CLI
+        // Use OSC /tempo/raw message (same approach as goto bar)
         return new Promise((resolve) => {
-            console.log('🎵 Creating inline tempo script for:', targetTempo, 'BPM');
-            
-            const tempDir = os.tmpdir();
-            const scriptPath = path.join(tempDir, `dawrv_set_tempo_${Date.now()}.lua`);
-            
-            // Create inline Lua script with embedded tempo value
-            const luaScript = `
--- DAWRV: Set Tempo to ${targetTempo} BPM
-local bpm = ${targetTempo}
-
-if bpm and bpm >= 1 and bpm <= 960 then
-    -- Use SetCurrentBPM which sets the global project tempo
-    reaper.SetCurrentBPM(0, bpm, false)
-    
-    -- Force display update
-    reaper.UpdateTimeline()
-    reaper.UpdateArrange()
-    
-    reaper.ShowConsoleMsg("DAWRV: Tempo set to " .. bpm .. " BPM\\n")
-else
-    reaper.ShowConsoleMsg("DAWRV: Invalid tempo value\\n")
-end
-`;
+            console.log('🎵 Setting tempo to', targetTempo, 'BPM via OSC...');
             
             try {
-                fs.writeFileSync(scriptPath, luaScript, 'utf8');
-                console.log('📝 Created tempo script at:', scriptPath);
+                const dgram = require('dgram');
+                const oscSocket = dgram.createSocket('udp4');
                 
-                // Try to activate REAPER
-                try {
-                    execSync('osascript -e \'tell application "REAPER" to activate\'', { stdio: 'ignore', timeout: 1000 });
-                } catch {}
+                // Build OSC message for /tempo/raw
+                const address = '/tempo/raw';
+                let oscData = Buffer.from(address + '\x00', 'utf-8');
+                // Pad to 4-byte boundary
+                while (oscData.length % 4 !== 0) oscData = Buffer.concat([oscData, Buffer.from([0])]);
                 
-                // Find REAPER executable
-                const reaperPaths = [
-                    '/Applications/REAPER.app/Contents/MacOS/reaper',
-                    '/Applications/REAPER64.app/Contents/MacOS/reaper'
-                ];
-                const reaperPath = reaperPaths.find(p => fs.existsSync(p));
+                // Type tag string: ,f (comma + float)
+                let typeTag = Buffer.from(',f\x00\x00', 'utf-8');
+                oscData = Buffer.concat([oscData, typeTag]);
                 
-                if (!reaperPath) {
-                    fs.unlinkSync(scriptPath);
-                    console.error('❌ REAPER executable not found');
-                    resolve({ success: false, error: 'REAPER not found' });
-                    return;
-                }
+                // Float argument (tempo in BPM)
+                const floatBuf = Buffer.allocUnsafe(4);
+                floatBuf.writeFloatBE(targetTempo, 0);
+                oscData = Buffer.concat([oscData, floatBuf]);
                 
-                console.log('🎵 Executing tempo script via REAPER CLI...');
-                execFile(reaperPath, ['-nonewinst', '-run', scriptPath], { timeout: 4000 }, (error, stdout, stderr) => {
-                    try { fs.unlinkSync(scriptPath); } catch {}
-                    
-                    if (stdout) console.log('📝 Script stdout:', stdout);
-                    if (stderr) console.log('📝 Script stderr:', stderr);
-                    
-                    // Check if it ran on existing instance
-                    if (stdout && stdout.includes('activating running instance')) {
-                        console.warn('⚠️  Script ran on running instance - may not execute');
+                console.log('🎵 Sending OSC /tempo/raw message:', targetTempo);
+                oscSocket.send(oscData, 8000, '127.0.0.1', (err) => {
+                    oscSocket.close();
+                    if (err) {
+                        console.error('❌ OSC send error:', err);
+                        resolve({ success: false, error: err.message });
+                    } else {
+                        console.log('✅ Tempo set to', targetTempo, 'BPM via OSC');
+                        resolve({ success: true });
                     }
-                    
-                    console.log('✅ Tempo script execution completed');
-                    resolve({ success: true });
                 });
             } catch (e) {
-                console.error('❌ Failed to create/execute tempo script:', e.message);
-                try { fs.unlinkSync(scriptPath); } catch {}
+                console.error('❌ Failed to send OSC tempo message:', e.message);
                 resolve({ success: false, error: e.message });
             }
         });
