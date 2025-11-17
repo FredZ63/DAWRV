@@ -59,7 +59,10 @@ class RHEAController {
             'settempo': 'tempo_set',  // Custom - uses script
             'increasetempo': 'tempo_increase',  // Custom - uses script
             'decreasetempo': 'tempo_decrease',  // Custom - uses script
-            'gettempo': 'tempo_get'  // Custom - uses script
+            'gettempo': 'tempo_get',  // Custom - uses script
+            
+            // Meta commands
+            'help': 'show_help'  // Show available commands
         };
         
         // Voice recognition configuration
@@ -1179,7 +1182,14 @@ class RHEAController {
             }
         }
         
-        return bestMatch || { action: null, response: 'Command not recognized', confidence: 0 };
+        // Provide helpful feedback for unrecognized commands
+        const helpfulResponses = [
+            'I didn\'t catch that. Try commands like play, stop, or set tempo',
+            'Not sure what you meant. Say "help" for available commands',
+            'Could you rephrase that? I understand commands like record, mute, or go to bar'
+        ];
+        const randomHelp = helpfulResponses[Math.floor(Math.random() * helpfulResponses.length)];
+        return bestMatch || { action: null, response: randomHelp, confidence: 0 };
     }
     
     /**
@@ -1368,7 +1378,7 @@ class RHEAController {
                     if (result.success) {
                         return { 
                             success: true, 
-                            message: `Tempo set to ${bpm} BPM` 
+                            message: this.generateResponse('settempo', { bpm })
                         };
                     }
                     return result;
@@ -1467,7 +1477,7 @@ class RHEAController {
                 const result = await (window.api.executeGotoBar ? window.api.executeGotoBar(value) : window.api.executeMeasureCommand('goto', value));
                 return result.success ? { 
                     success: true, 
-                    message: `Going to bar ${value}`,
+                    message: this.generateResponse('gotobar', { bar: value }),
                     context: { transportPosition: `Bar ${value}` }
                 } : result;
             }
@@ -1484,7 +1494,7 @@ class RHEAController {
                 }
                 return result.success ? { 
                     success: true, 
-                    message: `Playing from bar ${value}`,
+                    message: this.generateResponse('playfrombar', { bar: value }),
                     context: { transportPosition: `Bar ${value}` }
                 } : result;
             }
@@ -1497,7 +1507,7 @@ class RHEAController {
                 const result = await window.api.executeMeasureCommand('loop', range.start, range.end);
                 return result.success ? { 
                     success: true, 
-                    message: `Looping bars ${range.start} to ${range.end}`,
+                    message: this.generateResponse('loopbars', { bar: range.start, barEnd: range.end }),
                     context: { transportPosition: `Bars ${range.start}-${range.end}` }
                 } : result;
             }
@@ -1510,7 +1520,7 @@ class RHEAController {
                 const result = await window.api.executeMeasureCommand('marker', value);
                 return result.success ? { 
                     success: true, 
-                    message: `Going to marker ${value}`,
+                    message: this.generateResponse('gotomarker', { marker: value }),
                     context: { transportPosition: `Marker ${value}` }
                 } : result;
             }
@@ -1736,41 +1746,104 @@ class RHEAController {
     }
     
     /**
-     * Generate response text for an action
+     * Generate natural, context-aware response text for an action
      */
-    generateResponse(action) {
-        const responses = {
-            'play': 'Starting playback',
-            'stop': 'Stopping playback',
-            'pause': 'Pausing playback',
-            'record': 'Recording started',
-            'rewind': 'Rewinding to start',
-            'gotoend': 'Going to end',
-            'loop': 'Toggling loop',
-            'undo': 'Undoing last action',
-            'redo': 'Redoing last action',
-            'save': 'Saving project',
-            'saveas': 'Saving project as',
-            'newproject': 'Creating new project',
-            'openproject': 'Opening project',
-            'newtrack': 'Creating new track',
-            'deletetrack': 'Deleting track',
-            'mute': 'Muting track',
-            'unmute': 'Unmuting track',
-            'solo': 'Soloing track',
-            'unsolo': 'Unsoloing track',
-            'nexttrack': 'Moving to next track',
-            'previoustrack': 'Moving to previous track',
-            'zoomin': 'Zooming in',
-            'zoomout': 'Zooming out',
-            'zoomall': 'Zooming to fit all',
-            'addmarker': 'Adding marker',
-            'gotobar': 'Going to bar',
-            'playfrombar': 'Playing from bar',
-            'loopbars': 'Looping bars',
+    generateResponse(action, context = {}) {
+        // Multiple response variations for each action (randomly selected for variety)
+        const responseVariations = {
+            // Transport - Short and professional
+            'play': ['Playing', 'Rolling', 'Let\'s hear it'],
+            'stop': ['Stopped', 'Stopping', 'Got it'],
+            'pause': ['Paused', 'Taking a break', 'Hold on'],
+            'record': ['Recording', 'We\'re rolling', 'Capturing audio'],
+            'rewind': ['Back to the top', 'Rewinding', 'From the start'],
+            'gotoend': ['Jumping to the end', 'End of project', 'Going to the end'],
+            'loop': ['Loop toggled', 'Looping', 'Loop mode'],
+            
+            // Editing - Confirmatory
+            'undo': ['Undone', 'Undoing', 'Step back'],
+            'redo': ['Redone', 'Redoing', 'Step forward'],
+            'cut': ['Cut', 'Cutting selection'],
+            'copy': ['Copied', 'Copying selection'],
+            'paste': ['Pasted', 'Pasting'],
+            'delete': ['Deleted', 'Removing selection'],
+            
+            // Project - Clear status updates
+            'save': ['Project saved', 'Saved', 'Saving project'],
+            'saveas': ['Save as', 'Saving project as'],
+            'newproject': ['New project', 'Creating new project'],
+            'openproject': ['Opening project', 'Loading project'],
+            
+            // Tracks - Action-focused
+            'newtrack': ['New track added', 'Track created', 'Adding track'],
+            'deletetrack': ['Track deleted', 'Removing track'],
+            'mute': ['Track muted', 'Muting'],
+            'unmute': ['Track unmuted', 'Unmuting'],
+            'solo': ['Track soloed', 'Soloing'],
+            'unsolo': ['Solo off', 'Unsoloing'],
+            'nexttrack': ['Next track', 'Moving down'],
+            'previoustrack': ['Previous track', 'Moving up'],
+            
+            // Navigation - Spatial awareness
+            'zoomin': ['Zooming in', 'Closer view'],
+            'zoomout': ['Zooming out', 'Wider view'],
+            'zoomall': ['Fit to window', 'Full view'],
+            
+            // Markers - Location-aware
+            'addmarker': ['Marker added', 'Adding marker'],
+            'nextmarker': ['Next marker', 'Jumping forward'],
+            'previousmarker': ['Previous marker', 'Jumping back'],
+            
+            // Bar navigation - Include bar number if available
+            'gotobar': context.bar ? [`Bar ${context.bar}`] : ['Moving to bar'],
+            'playfrombar': context.bar ? [`Playing from bar ${context.bar}`] : ['Playing from bar'],
+            'loopbars': context.bar && context.barEnd ? 
+                [`Looping bars ${context.bar} to ${context.barEnd}`] : 
+                ['Setting loop range'],
+            'gotomarker': context.marker ? [`Marker ${context.marker}`] : ['Going to marker'],
+            
+            // Loop control
+            'setloopfromselection': ['Loop set', 'Loop from selection'],
+            'clearloop': ['Loop cleared', 'Loop off'],
+            
+            // Metronome & Pre-roll
+            'toggleclick': ['Click toggled', 'Metronome', 'Click track'],
+            'togglepreroll': ['Pre-roll toggled', 'Count-in'],
+            'togglecountin': ['Count-in toggled', 'Pre-roll'],
+            
+            // Tempo - Include BPM if available
+            'settempo': context.bpm ? [`${context.bpm} BPM`] : ['Tempo set'],
+            'increasetempo': context.bpm ? [`Increased to ${context.bpm}`] : ['Tempo up'],
+            'decreasetempo': context.bpm ? [`Decreased to ${context.bpm}`] : ['Tempo down'],
+            'gettempo': context.bpm ? [`Current tempo is ${context.bpm} BPM`] : ['Getting tempo'],
+            
+            // Nudge
+            'nudgebars': context.amount ? 
+                [`Nudged ${Math.abs(context.amount)} ${context.amount > 0 ? 'forward' : 'back'}`] : 
+                ['Nudging'],
+            'nudgebeats': context.amount ? 
+                [`Nudged ${Math.abs(context.amount)} ${context.amount > 0 ? 'forward' : 'back'}`] : 
+                ['Nudging'],
+            
+            // Meta commands
+            'help': [
+                'I can help with transport like play and stop, navigation like go to bar, tempo control, markers, looping, and more',
+                'Try commands like: play, stop, record, set tempo to 120, go to bar 5, loop bars 1 to 8, add marker',
+                'Available commands include transport controls, tempo changes, bar navigation, markers, metronome toggle, and more'
+            ],
         };
         
-        return responses[action] || `Executing ${action}`;
+        // Get variations for this action
+        const variations = responseVariations[action];
+        
+        if (variations && variations.length > 0) {
+            // Randomly select a variation for natural feel
+            const randomIndex = Math.floor(Math.random() * variations.length);
+            return variations[randomIndex];
+        }
+        
+        // Fallback for unknown actions
+        return `Executing ${action}`;
     }
     
     // Simple similarity calculation (Levenshtein-like)
@@ -1954,6 +2027,16 @@ class RHEAController {
         console.log('MATCH RESULT - Action:', action, 'Response:', response);
         console.log('window.api exists?', !!window.api);
         console.log('reaperActions[action]:', action ? this.reaperActions[action] : 'NO ACTION');
+        
+        // Check if this is a help command
+        if (action === 'help') {
+            const helpMessage = this.generateResponse('help');
+            this.speak(helpMessage);
+            this.updateStatus('ready', helpMessage);
+            this.logResult(transcript, 'success');
+            this.isProcessingCommand = false;
+            return;
+        }
         
         // Check if this is a plugin command
         const pluginActions = ['listplugins', 'searchplugins', 'plugininfo', 'plugincounts'];
