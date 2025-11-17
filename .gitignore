@@ -5,6 +5,8 @@ dmg_contents/
 *.dmg
 *.log
 .DS_Store
+.deepgram-key
+.env
 voice-engine/vosk/models/*
 !voice-engine/vosk/models/.gitkeep
 ai-training/training-data/*

@@ -369,6 +369,22 @@ class DAWRVApp {
             // Continue to start new process
         }
 
+        // Load Deepgram API key from file if not in environment
+        if (!process.env.DEEPGRAM_API_KEY) {
+            const keyFilePath = path.join(__dirname, '../../.deepgram-key');
+            if (fs.existsSync(keyFilePath)) {
+                try {
+                    const apiKey = fs.readFileSync(keyFilePath, 'utf8').trim();
+                    if (apiKey) {
+                        process.env.DEEPGRAM_API_KEY = apiKey;
+                        console.log('🔑 Loaded Deepgram API key from .deepgram-key file');
+                    }
+                } catch (error) {
+                    console.warn('⚠️  Could not read .deepgram-key file:', error.message);
+                }
+            }
+        }
+        
         // Determine which voice engine to use (Deepgram preferred, Whisper fallback)
         const useDeepgram = process.env.DEEPGRAM_API_KEY && process.env.DEEPGRAM_API_KEY.length > 0;
         const scriptFilename = useDeepgram ? 'rhea_voice_listener_deepgram.py' : 'rhea_voice_listener_whisper.py';
