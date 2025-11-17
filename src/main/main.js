@@ -1412,6 +1412,83 @@ end
 });
 console.log('📡 Goto-bar web handler registered');
 
+// Track Control: Execute track commands via REAPER ExtState + Lua script
+const RHEA_TRACK_CONTROL_ACTION_ID = '_RS55dfea6fa20325544ef5f17fec973ecf3822a422';
+ipcMain.handle('execute-track-command', async (event, command, trackNumber, value) => {
+    console.log('🎚️ ========================================');
+    console.log('🎚️ execute-track-command IPC handler called!');
+    console.log('🎚️ Command:', command);
+    console.log('🎚️ Track:', trackNumber);
+    console.log('🎚️ Value:', value);
+    console.log('🎚️ ========================================');
+    
+    return new Promise((resolve) => {
+        try {
+            const port = 8080;
+            
+            // Set ExtState parameters for the Lua script
+            const params = [
+                { key: 'track_command', value: command },
+                { key: 'track_number', value: String(trackNumber) },
+                { key: 'track_value', value: value !== undefined ? String(value) : '' }
+            ];
+            
+            console.log('🎚️ Setting ExtState parameters...');
+            
+            // Set all parameters sequentially
+            let paramIndex = 0;
+            const setNextParam = () => {
+                if (paramIndex >= params.length) {
+                    // All parameters set, now trigger the script
+                    setTimeout(() => {
+                        const actionPath = `/_/${encodeURIComponent(RHEA_TRACK_CONTROL_ACTION_ID)}`;
+                        console.log('🎚️ Triggering track control script...');
+                        
+                        const req = http.get({ host: '127.0.0.1', port, path: actionPath }, (res) => {
+                            let data = '';
+                            res.on('data', chunk => data += chunk);
+                            res.on('end', () => {
+                                console.log('✅ Track control script executed, status:', res.statusCode);
+                                resolve({ success: true });
+                            });
+                        });
+                        
+                        req.on('error', (e) => {
+                            console.error('❌ Failed to trigger track script:', e.message);
+                            resolve({ success: false, error: e.message });
+                        });
+                        
+                        req.setTimeout(5000, () => {
+                            console.warn('⚠️  Request timeout');
+                            resolve({ success: false, error: 'Timeout' });
+                        });
+                    }, 100);
+                    return;
+                }
+                
+                const param = params[paramIndex];
+                const setPath = `/_/SET/EXTSTATE/RHEA/${param.key}/${encodeURIComponent(param.value)}`;
+                
+                http.get({ host: '127.0.0.1', port, path: setPath }, (res) => {
+                    console.log(`✅ Set ${param.key} = ${param.value}`);
+                    paramIndex++;
+                    setNextParam();
+                }).on('error', (e) => {
+                    console.error(`❌ Failed to set ${param.key}:`, e.message);
+                    resolve({ success: false, error: e.message });
+                });
+            };
+            
+            setNextParam();
+            
+        } catch (e) {
+            console.error('❌ Exception in track command handler:', e.message);
+            resolve({ success: false, error: e.message });
+        }
+    });
+});
+console.log('🎚️ Track control handler registered');
+
 // Start DAW state service and forward updates to renderer
 try {
     dawrvApp.dawStateService.on('ready', info => {

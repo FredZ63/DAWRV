@@ -31,17 +31,31 @@ class RHEAController {
             'newproject': 40023,
             'openproject': 40025,
             
-            // Tracks
+            // Tracks - Basic
             'newtrack': 40001,
             'deletetrack': 40005,
+            'nexttrack': 40285,
+            'previoustrack': 40286,
+            
+            // Track Control - Global (affects selected track)
             'mute': 6,
             'unmute': 7,
             'solo': 8,
             'unsolo': 9,
+            'armtrack': 40294,  // Toggle record arm for selected track
+            'unarmtrack': 40294, // Same action, it's a toggle
+            
+            // Track Control - Specific (with track number)
+            'selecttrack': 'track_select',  // Custom - select specific track by number
+            'mutetrack': 'track_mute',      // Custom - mute specific track
+            'unmutetrack': 'track_unmute',  // Custom - unmute specific track
+            'solotrack': 'track_solo',      // Custom - solo specific track
+            'unsolotrack': 'track_unsolo',  // Custom - unsolo specific track
+            'armtracknum': 'track_arm',     // Custom - arm specific track
+            'settrackvolume': 'track_volume', // Custom - set track volume
+            'settrackpan': 'track_pan',     // Custom - set track pan
             
             // Navigation
-            'nexttrack': 40285,
-            'previoustrack': 40286,
             'zoomout': 1012,
             'zoomin': 1011,
             'zoomall': 40031,
@@ -1124,6 +1138,63 @@ class RHEAController {
                 action: 'nudgebeats',
                 response: 'Nudging beats',
                 priority: 7
+            },
+            // Track Control Commands
+            {
+                name: 'selecttrack',
+                keywords: ['select track', 'go to track', 'switch to track', 'choose track'],
+                action: 'selecttrack',
+                response: 'Selecting track',
+                priority: 8
+            },
+            {
+                name: 'mutetrack',
+                keywords: ['mute track', 'silence track', 'turn off track'],
+                action: 'mutetrack',
+                response: 'Muting track',
+                priority: 8
+            },
+            {
+                name: 'unmutetrack',
+                keywords: ['unmute track', 'turn on track', 'enable track'],
+                action: 'unmutetrack',
+                response: 'Unmuting track',
+                priority: 8
+            },
+            {
+                name: 'solotrack',
+                keywords: ['solo track', 'solo only track', 'isolate track'],
+                action: 'solotrack',
+                response: 'Soloing track',
+                priority: 8
+            },
+            {
+                name: 'unsolotrack',
+                keywords: ['unsolo track', 'unsolo', 'remove solo track'],
+                action: 'unsolotrack',
+                response: 'Unsoloing track',
+                priority: 8
+            },
+            {
+                name: 'armtracknum',
+                keywords: ['arm track', 'record arm track', 'enable recording track', 'record enable track'],
+                action: 'armtracknum',
+                response: 'Arming track',
+                priority: 8
+            },
+            {
+                name: 'settrackvolume',
+                keywords: ['set track volume', 'track volume', 'volume track', 'set volume track'],
+                action: 'settrackvolume',
+                response: 'Setting track volume',
+                priority: 8
+            },
+            {
+                name: 'settrackpan',
+                keywords: ['pan track', 'set track pan', 'track pan', 'pan track left', 'pan track right', 'pan track center'],
+                action: 'settrackpan',
+                response: 'Panning track',
+                priority: 8
             }
         ];
         
@@ -1283,6 +1354,96 @@ class RHEAController {
         // Fallback: parse number words (e.g., "seven", "twenty three")
         const wordValue = this.parseNumberWords(text);
         if (wordValue && wordValue > 0) return wordValue;
+        return null;
+    }
+    
+    /**
+     * Extract track number from voice command
+     * Examples: "select track 3", "mute track one", "track 5"
+     */
+    extractTrackNumber(text) {
+        const lower = text.toLowerCase();
+        
+        // Try numeric after "track" keyword
+        const trackMatch = lower.match(/track\s*(\d+)/i);
+        if (trackMatch) {
+            const num = parseInt(trackMatch[1], 10);
+            if (!isNaN(num) && num > 0 && num <= 128) return num;
+        }
+        
+        // Try just any number in track context
+        const anyNumber = lower.match(/(\d+)/);
+        if (anyNumber) {
+            const num = parseInt(anyNumber[1], 10);
+            if (!isNaN(num) && num > 0 && num <= 128) return num;
+        }
+        
+        // Try word numbers (one, two, three, etc.)
+        const wordNumber = this.parseNumberWords(lower);
+        if (wordNumber && wordNumber > 0 && wordNumber <= 128) return wordNumber;
+        
+        return null;
+    }
+    
+    /**
+     * Extract volume percentage from voice command
+     * Examples: "75 percent", "50%", "volume to 80"
+     */
+    extractVolumeValue(text) {
+        const lower = text.toLowerCase();
+        
+        // Pattern matching for volume
+        const patterns = [
+            /(\d+\.?\d*)\s*percent/i,       // "75 percent"
+            /(\d+\.?\d*)\s*%/i,             // "75%"
+            /volume\s+to\s+(\d+\.?\d*)/i,   // "volume to 75"
+            /set\s+volume\s+(\d+\.?\d*)/i,  // "set volume 75"
+            /(\d+\.?\d*)/i                  // Just a number
+        ];
+        
+        for (const pattern of patterns) {
+            const match = lower.match(pattern);
+            if (match) {
+                const value = parseFloat(match[1]);
+                if (!isNaN(value) && value >= 0 && value <= 100) {
+                    return value;
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Extract pan direction from voice command
+     * Examples: "pan left", "pan right", "pan center", "pan 50% left"
+     */
+    extractPanValue(text) {
+        const lower = text.toLowerCase();
+        
+        // Directional pan
+        if (/\b(center|centre|middle)\b/i.test(lower)) {
+            return { direction: 'center', value: 0 };
+        }
+        if (/\bleft\b/i.test(lower)) {
+            // Check for percentage: "pan 50% left"
+            const percentMatch = lower.match(/(\d+\.?\d*)\s*%?\s*left/i);
+            if (percentMatch) {
+                const percent = parseFloat(percentMatch[1]);
+                return { direction: 'left', value: -Math.min(100, percent) };
+            }
+            return { direction: 'left', value: -100 };
+        }
+        if (/\bright\b/i.test(lower)) {
+            // Check for percentage: "pan 50% right"
+            const percentMatch = lower.match(/(\d+\.?\d*)\s*%?\s*right/i);
+            if (percentMatch) {
+                const percent = parseFloat(percentMatch[1]);
+                return { direction: 'right', value: Math.min(100, percent) };
+            }
+            return { direction: 'right', value: 100 };
+        }
+        
         return null;
     }
     
@@ -1592,6 +1753,128 @@ class RHEAController {
         } catch (error) {
             console.error('Bar command error:', error);
             return { success: false, error: error.message || 'Measure command failed' };
+        }
+    }
+    
+    /**
+     * Process track control commands
+     */
+    async processTrackCommand(action, text) {
+        try {
+            if (!window.api || !window.api.executeTrackCommand) {
+                return { success: false, error: 'Track control API not available' };
+            }
+            
+            const trackNum = this.extractTrackNumber(text);
+            
+            if (action === 'selecttrack') {
+                if (!trackNum) {
+                    return { success: false, error: 'Please tell me which track to select' };
+                }
+                const result = await window.api.executeTrackCommand('select', trackNum);
+                return result.success ? {
+                    success: true,
+                    message: `Selected track ${trackNum}`,
+                    context: { selectedTrack: trackNum }
+                } : result;
+            }
+            
+            if (action === 'mutetrack') {
+                if (!trackNum) {
+                    return { success: false, error: 'Please tell me which track to mute' };
+                }
+                const result = await window.api.executeTrackCommand('mute', trackNum);
+                return result.success ? {
+                    success: true,
+                    message: `Muted track ${trackNum}`,
+                    context: { mutedTrack: trackNum }
+                } : result;
+            }
+            
+            if (action === 'unmutetrack') {
+                if (!trackNum) {
+                    return { success: false, error: 'Please tell me which track to unmute' };
+                }
+                const result = await window.api.executeTrackCommand('unmute', trackNum);
+                return result.success ? {
+                    success: true,
+                    message: `Unmuted track ${trackNum}`,
+                    context: { unmutedTrack: trackNum }
+                } : result;
+            }
+            
+            if (action === 'solotrack') {
+                if (!trackNum) {
+                    return { success: false, error: 'Please tell me which track to solo' };
+                }
+                const result = await window.api.executeTrackCommand('solo', trackNum);
+                return result.success ? {
+                    success: true,
+                    message: `Soloed track ${trackNum}`,
+                    context: { soloedTrack: trackNum }
+                } : result;
+            }
+            
+            if (action === 'unsolotrack') {
+                if (!trackNum) {
+                    return { success: false, error: 'Please tell me which track to unsolo' };
+                }
+                const result = await window.api.executeTrackCommand('unsolo', trackNum);
+                return result.success ? {
+                    success: true,
+                    message: `Unsoloed track ${trackNum}`,
+                    context: { unsoloedTrack: trackNum }
+                } : result;
+            }
+            
+            if (action === 'armtracknum') {
+                if (!trackNum) {
+                    return { success: false, error: 'Please tell me which track to arm' };
+                }
+                const result = await window.api.executeTrackCommand('arm', trackNum);
+                return result.success ? {
+                    success: true,
+                    message: `Armed track ${trackNum}`,
+                    context: { armedTrack: trackNum }
+                } : result;
+            }
+            
+            if (action === 'settrackvolume') {
+                if (!trackNum) {
+                    return { success: false, error: 'Please tell me which track' };
+                }
+                const volume = this.extractVolumeValue(text);
+                if (volume === null) {
+                    return { success: false, error: 'Please specify volume percentage (0-100)' };
+                }
+                const result = await window.api.executeTrackCommand('volume', trackNum, volume);
+                return result.success ? {
+                    success: true,
+                    message: `Set track ${trackNum} volume to ${volume}%`,
+                    context: { trackVolume: volume }
+                } : result;
+            }
+            
+            if (action === 'settrackpan') {
+                if (!trackNum) {
+                    return { success: false, error: 'Please tell me which track' };
+                }
+                const panInfo = this.extractPanValue(text);
+                if (!panInfo) {
+                    return { success: false, error: 'Please specify pan direction (left/right/center)' };
+                }
+                const result = await window.api.executeTrackCommand('pan', trackNum, panInfo.value);
+                return result.success ? {
+                    success: true,
+                    message: `Panned track ${trackNum} ${panInfo.direction}`,
+                    context: { trackPan: panInfo.direction }
+                } : result;
+            }
+            
+            return { success: false, error: `Unknown track command: ${action}` };
+        } catch (error) {
+            console.error('Track command error:', error);
+            return { success: false, error: error.message || 'Track command failed' };
         }
     }
     
@@ -2050,15 +2333,20 @@ class RHEAController {
         const barActions = ['gotobar', 'playfrombar', 'loopbars', 'gotomarker', 'setloopfromselection', 'clearloop', 'toggleclick', 'togglepreroll', 'togglecountin', 'nudgebars', 'nudgebeats'];
         const isBarCommand = barActions.includes(action);
         
+        // Check if this is a track control command
+        const trackActions = ['selecttrack', 'mutetrack', 'unmutetrack', 'solotrack', 'unsolotrack', 'armtracknum', 'settrackvolume', 'settrackpan'];
+        const isTrackCommand = trackActions.includes(action);
+        
         // Check if this is a MIDI 2.0 precise value command
         const midi2Actions = ['setvolume', 'setreverb', 'setpan'];
         const isMIDI2Command = midi2Actions.includes(action);
         
-        const willExecute = action && (this.reaperActions[action] || isMIDI2Command || isPluginCommand || isTempoCommand || isBarCommand);
+        const willExecute = action && (this.reaperActions[action] || isMIDI2Command || isPluginCommand || isTempoCommand || isBarCommand || isTrackCommand);
         console.log('WILL EXECUTE?', willExecute);
         console.log('IS PLUGIN COMMAND?', isPluginCommand);
         console.log('IS TEMPO COMMAND?', isTempoCommand);
         console.log('IS BAR COMMAND?', isBarCommand);
+        console.log('IS TRACK COMMAND?', isTrackCommand);
         console.log('IS MIDI 2.0 COMMAND?', isMIDI2Command);
         
         // Handle plugin commands
@@ -2132,6 +2420,34 @@ class RHEAController {
                 console.error('Measure command error:', error);
                 this.speak('Measure command failed');
                 this.updateStatus('error', 'Measure command failed');
+                this.logResult(transcript, 'error');
+            } finally {
+                this.isProcessingCommand = false;
+            }
+            return;
+        }
+        
+        // Handle track control commands
+        if (isTrackCommand) {
+            try {
+                console.log('🎚️ Processing track command:', action);
+                const result = await this.processTrackCommand(action, transcript);
+                if (result.success) {
+                    this.speak(result.message || response);
+                    this.updateStatus('ready', result.message || response);
+                    if (this.aiAgent && result.context) {
+                        this.aiAgent.updateDAWContext(result.context);
+                    }
+                    this.logResult(transcript, 'success');
+                } else {
+                    this.speak(result.error || 'Track command failed');
+                    this.updateStatus('error', result.error || 'Track command failed');
+                    this.logResult(transcript, 'error');
+                }
+            } catch (error) {
+                console.error('Track command error:', error);
+                this.speak('Track command failed');
+                this.updateStatus('error', 'Track command failed');
                 this.logResult(transcript, 'error');
             } finally {
                 this.isProcessingCommand = false;

@@ -86,6 +86,17 @@ contextBridge.exposeInMainWorld('api', {
             console.error('🔌 [PRELOAD] executeGotoBar error:', error);
             return { success: false, error: error.message };
         }
+    },
+    executeTrackCommand: async (command, trackNumber, value) => {
+        console.log('🔌 [PRELOAD] executeTrackCommand called:', command, trackNumber, value);
+        try {
+            const result = await ipcRenderer.invoke('execute-track-command', command, trackNumber, value);
+            console.log('🔌 [PRELOAD] executeTrackCommand result:', result);
+            return result;
+        } catch (error) {
+            console.error('🔌 [PRELOAD] executeTrackCommand error:', error);
+            return { success: false, error: error.message };
+        }
     }
 });
 
