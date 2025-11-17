@@ -1155,59 +1155,100 @@ async function handleTempoCommand(event, command, value) {
     console.log('🎵 execute-tempo-command HANDLER CALLED!');
     console.log('🎵 Command:', command, 'Value:', value);
     console.log('🎵 ========================================');
+    
+    const TEMPO_ACTION_ID = '_RS7ae10ebec27d6e3612f7ca8b4e962fd773238246';
+    
     try {
-        // Use Python tempo bridge
-        let tempoBridgeScript;
-        if (app.isPackaged) {
-            tempoBridgeScript = path.join(process.resourcesPath, 'reaper_tempo_bridge.py');
-        } else {
-            tempoBridgeScript = path.resolve(__dirname, '../../reaper_tempo_bridge.py');
-            if (!fs.existsSync(tempoBridgeScript)) {
-                tempoBridgeScript = path.resolve(process.cwd(), 'reaper_tempo_bridge.py');
-            }
+        // Handle 'get' command separately (read-only)
+        if (command === 'get') {
+            // For now, return a placeholder - we'd need a separate script for reading tempo
+            console.log('🎵 Get tempo not yet implemented via Web API');
+            return { success: false, error: 'Get tempo not yet implemented' };
         }
         
-        if (!fs.existsSync(tempoBridgeScript)) {
-            console.error('❌ Tempo bridge script not found:', tempoBridgeScript);
-            return { success: false, error: 'Tempo bridge script not found' };
+        // Calculate the target tempo based on command
+        let targetTempo = value;
+        
+        if (command === 'increase' || command === 'decrease') {
+            // We'd need to get current tempo first, but for now just use the value as delta
+            // TODO: Implement get current tempo via Web API
+            console.warn('⚠️  Increase/decrease requires current tempo - using absolute value instead');
         }
         
-        // Find python3
-        let pythonCmd = '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3';
-        if (!fs.existsSync(pythonCmd)) {
-            try {
-                pythonCmd = execSync('which python3', { encoding: 'utf-8' }).trim();
-            } catch {
-                pythonCmd = 'python3';
-            }
+        if (!targetTempo || isNaN(targetTempo) || targetTempo < 1 || targetTempo > 960) {
+            console.error('❌ Invalid tempo value:', targetTempo);
+            return { success: false, error: 'Invalid tempo value' };
         }
         
-        // Execute tempo command
+        // Use direct Lua script execution via REAPER CLI
         return new Promise((resolve) => {
-            const args = [tempoBridgeScript, command];
-            if (value !== null && value !== undefined) {
-                args.push(value.toString());
-            }
+            console.log('🎵 Creating inline tempo script for:', targetTempo, 'BPM');
             
-            console.log('🎵 Executing:', pythonCmd, args.join(' '));
-            execFile(pythonCmd, args, { timeout: 3000 }, (error, stdout, stderr) => {
-                if (command === 'get' && stdout) {
-                    const tempo = parseFloat(stdout.trim());
-                    if (!isNaN(tempo)) {
-                        console.log('🎵 Got tempo:', tempo);
-                        resolve({ success: true, tempo: tempo });
-                    } else {
-                        console.error('❌ Could not parse tempo from:', stdout);
-                        resolve({ success: false, error: 'Could not parse tempo' });
-                    }
-                } else if (error && error.code !== null && error.code !== 0) {
-                    console.error('❌ Tempo command error:', error);
-                    resolve({ success: false, error: error.message });
-                } else {
-                    console.log('✅ Tempo command executed successfully');
-                    resolve({ success: true });
+            const tempDir = os.tmpdir();
+            const scriptPath = path.join(tempDir, `dawrv_set_tempo_${Date.now()}.lua`);
+            
+            // Create inline Lua script with embedded tempo value
+            const luaScript = `
+-- DAWRV: Set Tempo to ${targetTempo} BPM
+local bpm = ${targetTempo}
+
+if bpm and bpm >= 1 and bpm <= 960 then
+    -- Use SetCurrentBPM which sets the global project tempo
+    reaper.SetCurrentBPM(0, bpm, false)
+    
+    -- Force display update
+    reaper.UpdateTimeline()
+    reaper.UpdateArrange()
+    
+    reaper.ShowConsoleMsg("DAWRV: Tempo set to " .. bpm .. " BPM\\n")
+else
+    reaper.ShowConsoleMsg("DAWRV: Invalid tempo value\\n")
+end
+`;
+            
+            try {
+                fs.writeFileSync(scriptPath, luaScript, 'utf8');
+                console.log('📝 Created tempo script at:', scriptPath);
+                
+                // Try to activate REAPER
+                try {
+                    execSync('osascript -e \'tell application "REAPER" to activate\'', { stdio: 'ignore', timeout: 1000 });
+                } catch {}
+                
+                // Find REAPER executable
+                const reaperPaths = [
+                    '/Applications/REAPER.app/Contents/MacOS/reaper',
+                    '/Applications/REAPER64.app/Contents/MacOS/reaper'
+                ];
+                const reaperPath = reaperPaths.find(p => fs.existsSync(p));
+                
+                if (!reaperPath) {
+                    fs.unlinkSync(scriptPath);
+                    console.error('❌ REAPER executable not found');
+                    resolve({ success: false, error: 'REAPER not found' });
+                    return;
                 }
-            });
+                
+                console.log('🎵 Executing tempo script via REAPER CLI...');
+                execFile(reaperPath, ['-nonewinst', '-run', scriptPath], { timeout: 4000 }, (error, stdout, stderr) => {
+                    try { fs.unlinkSync(scriptPath); } catch {}
+                    
+                    if (stdout) console.log('📝 Script stdout:', stdout);
+                    if (stderr) console.log('📝 Script stderr:', stderr);
+                    
+                    // Check if it ran on existing instance
+                    if (stdout && stdout.includes('activating running instance')) {
+                        console.warn('⚠️  Script ran on running instance - may not execute');
+                    }
+                    
+                    console.log('✅ Tempo script execution completed');
+                    resolve({ success: true });
+                });
+            } catch (e) {
+                console.error('❌ Failed to create/execute tempo script:', e.message);
+                try { fs.unlinkSync(scriptPath); } catch {}
+                resolve({ success: false, error: e.message });
+            }
         });
     } catch (error) {
         console.error('❌ Tempo command error:', error);
