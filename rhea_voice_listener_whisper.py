@@ -124,19 +124,20 @@ urllib.request.urlopen = urlopen_with_ssl_fix
 # Options: tiny, base, small, medium, large
 # 'small' provides excellent accuracy (85-90%) with FAST processing (~0.5-1 sec)
 # 'large' provides maximum accuracy (92-97%) but slower (~1.5-2.5 sec)
-print('📥 Loading Whisper "small" model (fast & accurate)...', flush=True)
+print('📥 Loading Whisper "base" model (fastest startup)...', flush=True)
 try:
-    model = whisper.load_model("small")
-    print('✅ Whisper "small" model loaded! (FAST - 85-90% accuracy)', flush=True)
-    print('   Processing time: ~0.5-1 second per command', flush=True)
+    model = whisper.load_model("base")
+    print('✅ Whisper "base" model loaded! (FASTEST - 5-10 second startup)', flush=True)
+    print('   Processing time: ~0.3-0.7 seconds per command', flush=True)
+    print('   Accuracy: 80-85% (good for voice commands)', flush=True)
 except Exception as e:
-    print(f'⚠️  Failed to load large model: {e}', flush=True)
-    print('   Trying medium model as fallback...', flush=True)
+    print(f'⚠️  Failed to load base model: {e}', flush=True)
+    print('   Trying tiny model as fallback...', flush=True)
     try:
-        model = whisper.load_model("medium")
-        print('✅ Whisper "medium" model loaded!', flush=True)
+        model = whisper.load_model("tiny")
+        print('✅ Whisper "tiny" model loaded!', flush=True)
     except Exception as e2:
-        print(f'❌ Failed to load medium model: {e2}', flush=True)
+        print(f'❌ Failed to load tiny model: {e2}', flush=True)
         print('   Trying small model as last resort...', flush=True)
         try:
             model = whisper.load_model("small")
