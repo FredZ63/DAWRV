@@ -1412,8 +1412,7 @@ end
 });
 console.log('📡 Goto-bar web handler registered');
 
-// Track Control: Execute track commands via CLI (Web API doesn't work for running REAPER)
-const RHEA_TRACK_CONTROL_ACTION_ID = '_RS10c85043a2d1d7b4f186ead71ad36fe3a89ebdb7';
+// Track Control: Execute track commands via OSC (much more reliable!)
 ipcMain.handle('execute-track-command', async (event, command, trackNumber, value) => {
     console.log('🎚️ ========================================');
     console.log('🎚️ execute-track-command IPC handler called!');
@@ -1424,66 +1423,83 @@ ipcMain.handle('execute-track-command', async (event, command, trackNumber, valu
     
     return new Promise((resolve) => {
         try {
-            const tempDir = os.tmpdir();
-            const scriptPath = path.join(tempDir, `dawrv_track_control_wrapper_${Date.now()}.lua`);
+            const dgram = require('dgram');
+            const oscSocket = dgram.createSocket('udp4');
             
-            // Create inline wrapper script that sets ExtState and calls the main script
-            const valueStr = value !== undefined ? String(value) : '';
-            const lua = `
--- Set ExtState parameters
-reaper.SetExtState("RHEA", "track_command", "${command}", true)
-reaper.SetExtState("RHEA", "track_number", "${String(trackNumber)}", true)
-reaper.SetExtState("RHEA", "track_value", "${valueStr}", true)
-
--- Trigger the main track control script
-local cmd = reaper.NamedCommandLookup("${RHEA_TRACK_CONTROL_ACTION_ID}")
-if cmd and cmd ~= 0 then
-    reaper.Main_OnCommand(cmd, 0)
-else
-    reaper.ShowConsoleMsg("DAWRV: Track control action not found\\n")
-end
-`;
+            let oscPath = '';
+            let oscValue = null;
             
-            fs.writeFileSync(scriptPath, lua, 'utf8');
-            console.log('🎚️ Created wrapper script at:', scriptPath);
-            
-            // Activate REAPER
-            try {
-                execSync('osascript -e \'tell application "REAPER" to activate\'', { stdio: 'ignore', timeout: 1000 });
-            } catch {}
-            
-            // Find REAPER executable
-            const reaperPaths = [
-                '/Applications/REAPER.app/Contents/MacOS/reaper',
-                '/Applications/REAPER64.app/Contents/MacOS/reaper'
-            ];
-            const reaperPath = reaperPaths.find(p => fs.existsSync(p));
-            
-            if (!reaperPath) {
-                try { fs.unlinkSync(scriptPath); } catch {}
-                console.error('❌ REAPER executable not found');
-                resolve({ success: false, error: 'REAPER not found' });
-                return;
+            // Map commands to OSC paths
+            // OSC format: /track/<trackNum>/<property> <value>
+            switch (command) {
+                case 'select':
+                    oscPath = `/track/${trackNumber}/select`;
+                    oscValue = 1;  // 1 = select
+                    break;
+                case 'mute':
+                    oscPath = `/track/${trackNumber}/mute`;
+                    oscValue = 1;  // 1 = mute
+                    break;
+                case 'unmute':
+                    oscPath = `/track/${trackNumber}/mute`;
+                    oscValue = 0;  // 0 = unmute
+                    break;
+                case 'solo':
+                    oscPath = `/track/${trackNumber}/solo`;
+                    oscValue = 1;  // 1 = solo
+                    break;
+                case 'unsolo':
+                    oscPath = `/track/${trackNumber}/solo`;
+                    oscValue = 0;  // 0 = unsolo
+                    break;
+                case 'arm':
+                    oscPath = `/track/${trackNumber}/recarm`;
+                    oscValue = 1;  // Toggle (1 will toggle)
+                    break;
+                case 'volume':
+                    oscPath = `/track/${trackNumber}/volume`;
+                    // Convert percentage (0-100) to normalized value (0-1)
+                    oscValue = value / 100.0;
+                    break;
+                case 'pan':
+                    oscPath = `/track/${trackNumber}/pan`;
+                    // Convert -100 to 100 range to -1 to 1
+                    oscValue = value / 100.0;
+                    break;
+                default:
+                    console.error('❌ Unknown track command:', command);
+                    resolve({ success: false, error: 'Unknown command' });
+                    return;
             }
             
-            console.log('🎚️ Executing via REAPER CLI...');
-            execFile(reaperPath, ['-nonewinst', '-run', scriptPath], { timeout: 4000 }, (error, stdout, stderr) => {
-                // Don't delete script immediately for debugging
-                console.log('🎚️ Script stdout:', stdout || '(empty)');
-                console.log('🎚️ Script stderr:', stderr || '(empty)');
-                
-                if (error) {
-                    console.error('❌ CLI execution error:', error.message);
-                    console.error('   Error code:', error.code);
-                    console.error('   Error signal:', error.signal);
-                }
-                
-                try { fs.unlinkSync(scriptPath); } catch {}
-                
-                if (error && error.code !== null && error.code !== 0) {
-                    resolve({ success: false, error: error.message });
+            console.log('🎚️ Sending OSC:', oscPath, oscValue);
+            
+            // Build OSC message
+            let oscData = Buffer.from(oscPath + '\x00', 'utf-8');
+            // Pad to 4-byte boundary
+            while (oscData.length % 4 !== 0) oscData = Buffer.concat([oscData, Buffer.from([0])]);
+            
+            // Type tag string: ,f (comma + float) or ,i (comma + int)
+            const useFloat = command === 'volume' || command === 'pan';
+            let typeTag = Buffer.from(useFloat ? ',f\x00\x00' : ',i\x00\x00', 'utf-8');
+            oscData = Buffer.concat([oscData, typeTag]);
+            
+            // Value argument
+            const valueBuf = Buffer.allocUnsafe(4);
+            if (useFloat) {
+                valueBuf.writeFloatBE(oscValue, 0);
+            } else {
+                valueBuf.writeInt32BE(oscValue, 0);
+            }
+            oscData = Buffer.concat([oscData, valueBuf]);
+            
+            oscSocket.send(oscData, 8000, '127.0.0.1', (err) => {
+                oscSocket.close();
+                if (err) {
+                    console.error('❌ OSC send error:', err);
+                    resolve({ success: false, error: err.message });
                 } else {
-                    console.log('✅ Track command executed via CLI');
+                    console.log('✅ Track command sent via OSC');
                     resolve({ success: true });
                 }
             });
