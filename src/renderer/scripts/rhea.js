@@ -129,7 +129,7 @@ class RHEAController {
         // Feedback suppression
         this.isSpeaking = false; // Track when RHEA is speaking
         this.speechEndTime = 0; // Track when speech ended
-        this.speechCooldown = 3500; // Ignore commands for 3.5 seconds after speech ends (increased to prevent feedback loop)
+        this.speechCooldown = 1500; // Ignore commands for 1.5 seconds after speech ends (balanced for speed vs feedback prevention)
         
         // Subscribe to DAW state updates (transport position, playing, etc.)
         try {
@@ -3150,9 +3150,9 @@ class RHEAController {
                 console.log('🔊 RHEA started speaking (TTS Provider)');
                 
                 // Wait for speech to actually finish before resetting flag
-                // Estimate speech duration based on text length (rough estimate: 150 words per minute = 400ms per word average)
+                // Estimate speech duration based on text length (rough estimate: 180 words per minute = 333ms per word average)
                 const wordCount = text.split(' ').length;
-                const estimatedDuration = Math.max(2000, wordCount * 400); // At least 2 seconds
+                const estimatedDuration = Math.max(1000, wordCount * 350); // At least 1 second
                 
                 setTimeout(() => {
                     this.isSpeaking = false;
