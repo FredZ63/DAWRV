@@ -180,7 +180,20 @@ class RHEAController {
             'pasting', 'deleting selection', 'selecting all', 'creating new project', 'opening project',
             'deleting track', 'muting track', 'unmuting track', 'soloing track', 'unsoloing track',
             'moving to next track', 'moving to previous track', 'zooming in', 'zooming out',
-            'zooming to fit all', 'adding marker', 'moving to next marker', 'moving to previous marker'
+            'zooming to fit all', 'adding marker', 'moving to next marker', 'moving to previous marker',
+            // Mixer commands
+            'toggling mixer', 'toggling mixer window', 'muted master', 'unmuted master', 'master muted',
+            'master unmuted', 'master volume increased', 'master volume decreased', 'muted all tracks',
+            'unmuted all tracks', 'toggling metronome', 'metronome toggled', 'toggling click',
+            // Tempo commands
+            'tempo set', 'tempo increased', 'tempo decreased', 'setting tempo',
+            // Bar commands
+            'moved to bar', 'playing from bar', 'looping bars', 'moved to marker',
+            // Track commands
+            'selected track', 'muted track', 'unmuted track', 'soloed track', 'unsoloed track',
+            'setting track volume', 'track volume set', 'panning track', 'track panned',
+            // Common error phrases
+            'not found', 'command not found', 'plugin not found', 'action not found'
         ];
         
         // Load saved config from localStorage
@@ -3136,12 +3149,18 @@ class RHEAController {
                 if (avatar) avatar.classList.add('speaking');
                 console.log('🔊 RHEA started speaking (TTS Provider)');
                 
-                // Note: TTS Provider handles onend internally
-                this.isSpeaking = false;
-                this.speechEndTime = Date.now();
+                // Wait for speech to actually finish before resetting flag
+                // Estimate speech duration based on text length (rough estimate: 150 words per minute = 400ms per word average)
+                const wordCount = text.split(' ').length;
+                const estimatedDuration = Math.max(2000, wordCount * 400); // At least 2 seconds
                 
-                if (avatar) avatar.classList.remove('speaking');
-                console.log('🔇 RHEA finished speaking - cooldown period started');
+                setTimeout(() => {
+                    this.isSpeaking = false;
+                    this.speechEndTime = Date.now();
+                    if (avatar) avatar.classList.remove('speaking');
+                    console.log('🔇 RHEA finished speaking - cooldown period started');
+                    console.log(`   Cooldown active for ${this.speechCooldown}ms`);
+                }, estimatedDuration);
             } else {
                 // Fallback to browser TTS
                 this.speakBrowser(text);
