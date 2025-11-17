@@ -3,6 +3,7 @@ class RHEAController {
         this.status = 'ready';
         this.isListening = false;
         this.recognition = null;
+        this.mixerVisible = false; // Track mixer visibility state
         this.reaperActions = {
             // Transport
             'play': 1007,
@@ -1256,17 +1257,24 @@ class RHEAController {
             // Mixer Control Commands
             {
                 name: 'showmixer',
-                keywords: ['show mixer', 'open mixer', 'display mixer', 'toggle mixer', 'mixer window'],
+                keywords: ['show mixer', 'open mixer', 'display mixer', 'view mixer', 'mixer window', 'show me the mixer', 'open the mixer', 'display the mixer'],
                 action: 'showmixer',
-                response: 'Toggling mixer',
+                response: 'Opening mixer',
                 priority: 8
             },
             {
                 name: 'hidemixer',
-                keywords: ['hide mixer', 'close mixer'],
+                keywords: ['hide mixer', 'close mixer', 'hide the mixer', 'close the mixer'],
                 action: 'hidemixer',
-                response: 'Hiding mixer',
+                response: 'Closing mixer',
                 priority: 8
+            },
+            {
+                name: 'togglemixer',
+                keywords: ['toggle mixer', 'toggle the mixer'],
+                action: 'togglemixer',
+                response: 'Toggling mixer',
+                priority: 7
             },
             {
                 name: 'mastermute',
@@ -2107,31 +2115,59 @@ class RHEAController {
         console.log('🎛️ ========================================');
         
         try {
-            // Mixer Visibility Commands (use REAPER action IDs)
+            // Mixer Visibility Commands with smart show/hide
             if (action === 'showmixer' || action === 'hidemixer' || action === 'togglemixer' || 
                 action === 'mixerwindow' || action === 'openmixer' || action === 'closemixer') {
                 console.log('🎛️ Matched mixer visibility command:', action);
-                
-                // All these actions map to the same toggle action (40078)
-                const actionId = this.reaperActions[action] || 40078;
-                console.log('🎛️ Action ID:', actionId);
-                console.log('🎛️ window.api exists?', !!window.api);
-                console.log('🎛️ window.api.executeReaperAction exists?', !!(window.api && window.api.executeReaperAction));
+                console.log('🎛️ Current mixer state:', this.mixerVisible ? 'visible' : 'hidden');
                 
                 if (!window.api || !window.api.executeReaperAction) {
                     console.error('❌ executeReaperAction not available!');
                     return { success: false, error: 'REAPER action API not available' };
                 }
                 
-                console.log('🎛️ Calling executeReaperAction with ID:', actionId);
-                const result = await window.api.executeReaperAction(actionId);
-                console.log('🎛️ Result:', result);
+                // Determine if we need to toggle based on current state
+                let shouldToggle = false;
+                let actionMessage = 'Mixer window';
                 
-                return result.success ? {
-                    success: true,
-                    message: 'Toggled mixer window',
-                    context: {}
-                } : result;
+                if (action === 'showmixer' || action === 'openmixer') {
+                    // Only toggle if mixer is currently hidden
+                    if (!this.mixerVisible) {
+                        shouldToggle = true;
+                        this.mixerVisible = true;
+                        actionMessage = 'Opening mixer';
+                    } else {
+                        console.log('🎛️ Mixer already visible, no action needed');
+                        return { success: true, message: 'Mixer already open', context: {} };
+                    }
+                } else if (action === 'hidemixer' || action === 'closemixer') {
+                    // Only toggle if mixer is currently visible
+                    if (this.mixerVisible) {
+                        shouldToggle = true;
+                        this.mixerVisible = false;
+                        actionMessage = 'Closing mixer';
+                    } else {
+                        console.log('🎛️ Mixer already hidden, no action needed');
+                        return { success: true, message: 'Mixer already closed', context: {} };
+                    }
+                } else {
+                    // Toggle or mixerwindow - always toggle and flip state
+                    shouldToggle = true;
+                    this.mixerVisible = !this.mixerVisible;
+                    actionMessage = this.mixerVisible ? 'Opening mixer' : 'Closing mixer';
+                }
+                
+                if (shouldToggle) {
+                    console.log('🎛️ Toggling mixer (action 40078)');
+                    const result = await window.api.executeReaperAction(40078);
+                    console.log('🎛️ Result:', result);
+                    
+                    return result.success ? {
+                        success: true,
+                        message: actionMessage,
+                        context: { mixerVisible: this.mixerVisible }
+                    } : result;
+                }
             }
             
             if (action === 'showmcp' || action === 'hidemcp' || action === 'togglemcp') {
