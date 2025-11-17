@@ -1412,7 +1412,7 @@ end
 });
 console.log('📡 Goto-bar web handler registered');
 
-// Track Control: Execute track commands via REAPER ExtState + Lua script
+// Track Control: Execute track commands via CLI (Web API doesn't work for running REAPER)
 const RHEA_TRACK_CONTROL_ACTION_ID = '_RS55dfea6fa20325544ef5f17fec973ecf3822a422';
 ipcMain.handle('execute-track-command', async (event, command, trackNumber, value) => {
     console.log('🎚️ ========================================');
@@ -1424,62 +1424,60 @@ ipcMain.handle('execute-track-command', async (event, command, trackNumber, valu
     
     return new Promise((resolve) => {
         try {
-            const port = 8080;
+            const tempDir = os.tmpdir();
+            const scriptPath = path.join(tempDir, `dawrv_track_control_wrapper_${Date.now()}.lua`);
             
-            // Set ExtState parameters for the Lua script
-            const params = [
-                { key: 'track_command', value: command },
-                { key: 'track_number', value: String(trackNumber) },
-                { key: 'track_value', value: value !== undefined ? String(value) : '' }
+            // Create inline wrapper script that sets ExtState and calls the main script
+            const valueStr = value !== undefined ? String(value) : '';
+            const lua = `
+-- Set ExtState parameters
+reaper.SetExtState("RHEA", "track_command", "${command}", true)
+reaper.SetExtState("RHEA", "track_number", "${String(trackNumber)}", true)
+reaper.SetExtState("RHEA", "track_value", "${valueStr}", true)
+
+-- Trigger the main track control script
+local cmd = reaper.NamedCommandLookup("${RHEA_TRACK_CONTROL_ACTION_ID}")
+if cmd and cmd ~= 0 then
+    reaper.Main_OnCommand(cmd, 0)
+else
+    reaper.ShowConsoleMsg("DAWRV: Track control action not found\\n")
+end
+`;
+            
+            fs.writeFileSync(scriptPath, lua, 'utf8');
+            console.log('🎚️ Created wrapper script at:', scriptPath);
+            
+            // Activate REAPER
+            try {
+                execSync('osascript -e \'tell application "REAPER" to activate\'', { stdio: 'ignore', timeout: 1000 });
+            } catch {}
+            
+            // Find REAPER executable
+            const reaperPaths = [
+                '/Applications/REAPER.app/Contents/MacOS/reaper',
+                '/Applications/REAPER64.app/Contents/MacOS/reaper'
             ];
+            const reaperPath = reaperPaths.find(p => fs.existsSync(p));
             
-            console.log('🎚️ Setting ExtState parameters...');
+            if (!reaperPath) {
+                try { fs.unlinkSync(scriptPath); } catch {}
+                console.error('❌ REAPER executable not found');
+                resolve({ success: false, error: 'REAPER not found' });
+                return;
+            }
             
-            // Set all parameters sequentially
-            let paramIndex = 0;
-            const setNextParam = () => {
-                if (paramIndex >= params.length) {
-                    // All parameters set, now trigger the script
-                    setTimeout(() => {
-                        const actionPath = `/_/${encodeURIComponent(RHEA_TRACK_CONTROL_ACTION_ID)}`;
-                        console.log('🎚️ Triggering track control script...');
-                        
-                        const req = http.get({ host: '127.0.0.1', port, path: actionPath }, (res) => {
-                            let data = '';
-                            res.on('data', chunk => data += chunk);
-                            res.on('end', () => {
-                                console.log('✅ Track control script executed, status:', res.statusCode);
-                                resolve({ success: true });
-                            });
-                        });
-                        
-                        req.on('error', (e) => {
-                            console.error('❌ Failed to trigger track script:', e.message);
-                            resolve({ success: false, error: e.message });
-                        });
-                        
-                        req.setTimeout(5000, () => {
-                            console.warn('⚠️  Request timeout');
-                            resolve({ success: false, error: 'Timeout' });
-                        });
-                    }, 100);
-                    return;
+            console.log('🎚️ Executing via REAPER CLI...');
+            execFile(reaperPath, ['-nonewinst', '-run', scriptPath], { timeout: 4000 }, (error, stdout, stderr) => {
+                try { fs.unlinkSync(scriptPath); } catch {}
+                
+                if (error && error.code !== null && error.code !== 0) {
+                    console.error('❌ CLI execution error:', error.message);
+                    resolve({ success: false, error: error.message });
+                } else {
+                    console.log('✅ Track command executed via CLI');
+                    resolve({ success: true });
                 }
-                
-                const param = params[paramIndex];
-                const setPath = `/_/SET/EXTSTATE/RHEA/${param.key}/${encodeURIComponent(param.value)}`;
-                
-                http.get({ host: '127.0.0.1', port, path: setPath }, (res) => {
-                    console.log(`✅ Set ${param.key} = ${param.value}`);
-                    paramIndex++;
-                    setNextParam();
-                }).on('error', (e) => {
-                    console.error(`❌ Failed to set ${param.key}:`, e.message);
-                    resolve({ success: false, error: e.message });
-                });
-            };
-            
-            setNextParam();
+            });
             
         } catch (e) {
             console.error('❌ Exception in track command handler:', e.message);
