@@ -189,10 +189,10 @@ def record_audio():
     print('🎧 Listening...', flush=True)
     frames = []
     
-    # Voice activity detection parameters - tuned to reduce false triggers
-    SILENCE_THRESHOLD = 200   # RMS threshold for silence (higher = less sensitive, fewer false triggers)
-    MIN_SPEECH_CHUNKS = 5     # Minimum chunks of speech to consider valid (more chunks = fewer false triggers)
-    MAX_SILENCE_CHUNKS = 12   # Max silence chunks before stopping (more patience for pauses)
+    # Voice activity detection parameters - balanced for responsiveness
+    SILENCE_THRESHOLD = 150   # RMS threshold for silence (lower = MORE sensitive, catches quieter speech)
+    MIN_SPEECH_CHUNKS = 3     # Minimum chunks of speech to consider valid (lower = faster response)
+    MAX_SILENCE_CHUNKS = 15   # Max silence chunks before stopping (more patience for pauses mid-command)
     
     speech_detected = False
     speech_chunks = 0
