@@ -221,19 +221,28 @@ class RHEAController {
         
         // Initialize AI config UI after a short delay (ensure DOM is ready)
         setTimeout(() => {
+            console.log('🔧 Initializing RHEA UI managers...');
+            
             if (typeof AIConfigManager !== 'undefined') {
                 this.aiConfigManager = new AIConfigManager(this);
                 window.aiConfigManager = this.aiConfigManager; // Expose to window
+                console.log('✅ AI Config Manager initialized');
             }
             if (typeof KnowledgeUIManager !== 'undefined') {
                 this.knowledgeUIManager = new KnowledgeUIManager(this);
                 window.knowledgeUI = this.knowledgeUIManager; // Expose to window
+                console.log('✅ Knowledge UI Manager initialized');
             }
             if (typeof TTSConfigManager !== 'undefined') {
                 this.ttsConfigManager = new TTSConfigManager(this);
                 window.ttsConfigUI = this.ttsConfigManager; // Expose to window
+                console.log('✅ TTS Config Manager initialized');
             }
-        }, 1000);
+            
+            // Dispatch event to notify that managers are ready
+            window.dispatchEvent(new CustomEvent('rhea-managers-ready'));
+            console.log('🎉 All RHEA managers ready!');
+        }, 500); // Reduced from 1000ms to 500ms
     }
     
     /**
