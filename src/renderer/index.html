@@ -6,6 +6,7 @@
     <title>DAWRV - Digital Audio Workstation Response to Voice</title>
     <link rel="stylesheet" href="styles/main.css">
     <link rel="stylesheet" href="styles/rhea.css">
+    <link rel="stylesheet" href="styles/rhea-premium.css">
     <link rel="stylesheet" href="styles/rhea-image.css">
     <link rel="stylesheet" href="styles/audio-settings.css">
 </head>
@@ -65,13 +66,6 @@
                         <span class="btn-text">Audio Settings</span>
                     </button>
                 </div>
-                <!-- Manual Text Input -->
-                <div style="margin: 20px 0; padding: 20px; background: linear-gradient(135deg, rgba(76,175,80,0.1), rgba(33,150,243,0.1)); border: 2px solid rgba(76,175,80,0.3); border-radius: 12px;">
-                    <h3 style="color: #4CAF50; margin-bottom: 15px; font-size: 18px;">💬 Type Command Here</h3>
-                    <input type="text" id="manual-command" placeholder="Type: play, stop, record, undo, save, or new track" style="width: 100%; padding: 15px; background: rgba(0,0,0,0.5); border: 2px solid rgba(76,175,80,0.5); border-radius: 8px; color: white; font-size: 16px; margin-bottom: 10px;">
-                    <button id="send-command" style="padding: 12px 24px; background: #4CAF50; border: none; border-radius: 8px; color: white; font-size: 16px; font-weight: bold; cursor: pointer; width: 100%;">Send Command ▶️</button>
-                </div>
-
                 <!-- Quick Actions -->
                 <div class="quick-actions">
                     <h3>Quick Commands</h3>
@@ -80,6 +74,15 @@
                         <button class="quick-cmd" data-command="stop">⏹️ Stop</button>
                         <button class="quick-cmd" data-command="record">⏺️ Record</button>
                         <button class="quick-cmd" data-command="undo">↶ Undo</button>
+                    </div>
+                </div>
+
+                <!-- Manual Text Input -->
+                <div class="manual-command-section">
+                    <div class="manual-command-container">
+                        <h3>💬 Type Command Here</h3>
+                        <input type="text" id="manual-command" placeholder="Type: play, stop, record, undo, save...">
+                        <button id="send-command">Send Command ▶️</button>
                     </div>
                 </div>
             </section>
