@@ -24,6 +24,11 @@ class TTSConfigManager {
         console.log('✅ TTS Config Manager initialized');
     }
     
+    show() {
+        // Alias for showModal() - used by button handlers
+        this.showModal();
+    }
+    
     showModal() {
         if (!this.modal) {
             this.createModal();

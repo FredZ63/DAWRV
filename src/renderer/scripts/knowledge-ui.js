@@ -41,6 +41,11 @@ class KnowledgeUIManager {
         console.log('✅ Knowledge UI Manager initialized');
     }
     
+    show() {
+        // Alias for showModal() - used by button handlers
+        this.showModal();
+    }
+    
     showModal() {
         if (!this.kb) {
             alert('Knowledge base not initialized. Please ensure KnowledgeBase is loaded.');

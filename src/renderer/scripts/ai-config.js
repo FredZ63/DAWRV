@@ -16,6 +16,11 @@ class AIConfigManager {
         console.log('✅ AI Config Manager initialized');
     }
     
+    show() {
+        // Alias for showConfigModal() - used by button handlers
+        this.showConfigModal();
+    }
+    
     showConfigModal() {
         // Create modal if it doesn't exist
         if (!this.configModal) {
