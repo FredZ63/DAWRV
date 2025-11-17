@@ -67,6 +67,42 @@ if (window.AudioConfigManager && window.AudioSettingsUI) {
     console.log('✅ Audio Settings initialized');
 }
 
+// Setup AI Settings button (if ai-config.js has initialized)
+const aiSettingsBtn = document.getElementById('ai-settings-btn');
+if (aiSettingsBtn) {
+    aiSettingsBtn.addEventListener('click', () => {
+        // Check if AI config manager exists
+        if (typeof openAIConfig === 'function') {
+            openAIConfig();
+        } else {
+            console.log('Opening AI Settings...');
+            // The AI config modal should be initialized by ai-config.js
+            const event = new CustomEvent('open-ai-settings');
+            window.dispatchEvent(event);
+        }
+    });
+}
+
+// Setup Knowledge Import button
+const knowledgeBtn = document.getElementById('knowledge-import-btn');
+if (knowledgeBtn) {
+    knowledgeBtn.addEventListener('click', () => {
+        console.log('Opening Knowledge Import...');
+        const event = new CustomEvent('open-knowledge-import');
+        window.dispatchEvent(event);
+    });
+}
+
+// Setup TTS/Voice Settings button
+const ttsBtn = document.getElementById('tts-settings-btn');
+if (ttsBtn) {
+    ttsBtn.addEventListener('click', () => {
+        console.log('Opening Voice Settings...');
+        const event = new CustomEvent('open-tts-settings');
+        window.dispatchEvent(event);
+    });
+}
+
 // Log startup
 console.log('✅ DAWRV Application Initialized');
 console.log('🎤 Waiting for RHEA voice engine...');

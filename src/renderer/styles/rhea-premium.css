@@ -16,7 +16,8 @@
     border: 1px solid rgba(255, 255, 255, 0.15);
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
     position: relative;
 }
 
@@ -244,10 +245,30 @@
 .voice-controls {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 15px;
+    gap: 20px;
     padding: 0 40px 30px 40px;
     position: relative;
     z-index: 1;
+}
+
+/* Settings Buttons Grid - 2x2 Layout */
+.settings-buttons-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.settings-buttons-grid .voice-btn {
+    padding: 16px 20px;
+    font-size: 0.95em;
+}
+
+.settings-buttons-grid .btn-icon {
+    font-size: 1.2em;
+}
+
+.settings-buttons-grid .btn-text {
+    font-size: 0.9em;
 }
 
 /* Premium Voice Button */
