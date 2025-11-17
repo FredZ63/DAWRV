@@ -1303,109 +1303,58 @@ ipcMain.handle('execute-goto-bar', async (event, barNumber) => {
     return new Promise((resolve) => {
         const tryWeb = () => {
             try {
-                console.log('📡 Using Web API + OSC hybrid approach...');
+                console.log('📡 Using REAPER native Lua script for accurate bar positioning...');
                 if (!barNumber || isNaN(Number(barNumber))) {
                     console.error('❌ Invalid bar number:', barNumber);
                     resolve({ success: false, error: 'Invalid bar number' });
                     return;
                 }
                 
-                // Step 1: Get current tempo from REAPER via Web API
+                // Use REAPER's native TimeMap functions via Lua script
+                // This handles any tempo, time signature changes, and tempo envelopes
                 const port = 8080;
                 
-                // First, get the current tempo using TEMPO endpoint
-                http.get({ host: '127.0.0.1', port, path: '/_/TEMPO' }, (tempoRes) => {
-                    let tempoData = '';
-                    tempoRes.on('data', chunk => tempoData += chunk);
-                    tempoRes.on('end', () => {
-                        try {
-                            // TEMPO returns: TEMPO [bpm]
-                            // Example: "TEMPO 90.0"
-                            const tempoMatch = tempoData.match(/TEMPO\s+([\d.]+)/);
-                            let tempo = 120.0; // Fallback default
+                // Step 1: Set the target bar in ExtState
+                const setPath = `/_/SET/EXTSTATE/RHEA/target_bar/${encodeURIComponent(String(barNumber))}`;
+                console.log('📡 Setting ExtState RHEA/target_bar to:', barNumber);
+                
+                http.get({ host: '127.0.0.1', port, path: setPath }, (res) => {
+                    let data = '';
+                    res.on('data', chunk => data += chunk);
+                    res.on('end', () => {
+                        console.log('✅ ExtState set, status:', res.statusCode);
+                        
+                        // Step 2: Trigger the Lua script via Action ID
+                        setTimeout(() => {
+                            const actionPath = `/_/${encodeURIComponent(RHEA_GOTO_BAR_ACTION_ID)}`;
+                            console.log('📡 Triggering goto bar script via:', `http://127.0.0.1:${port}${actionPath}`);
                             
-                            if (tempoMatch && tempoMatch[1]) {
-                                tempo = parseFloat(tempoMatch[1]);
-                                console.log('📡 Got project tempo from REAPER:', tempo, 'BPM');
-                            } else {
-                                console.warn('⚠️  Could not parse tempo, using default:', tempo, 'BPM');
-                                console.warn('   Tempo data received:', tempoData);
-                            }
-                            
-                            // Calculate time for bar (assuming 4/4 time signature)
-                            // Bar 1 = 0 seconds, Bar 2 = (4 beats / tempo) * 60, etc.
-                            const beatsPerBar = 4;
-                            const secondsPerBeat = 60.0 / tempo;
-                            const barIndex = barNumber - 1; // Convert to 0-based
-                            const timeInSeconds = barIndex * beatsPerBar * secondsPerBeat;
-                            
-                            console.log('📡 Calculated time for bar', barNumber, ':', timeInSeconds, 'seconds', '@', tempo, 'BPM');
-                            
-                            // Step 2: Send OSC message to set playhead position
-                            const dgram = require('dgram');
-                            const oscSocket = dgram.createSocket('udp4');
-                            
-                            // Build OSC message for /time
-                            const address = '/time';
-                            let oscData = Buffer.from(address + '\x00', 'utf-8');
-                            // Pad to 4-byte boundary
-                            while (oscData.length % 4 !== 0) oscData = Buffer.concat([oscData, Buffer.from([0])]);
-                            
-                            // Type tag string: ,f (comma + float)
-                            let typeTag = Buffer.from(',f\x00\x00', 'utf-8');
-                            oscData = Buffer.concat([oscData, typeTag]);
-                            
-                            // Float argument (time in seconds)
-                            const floatBuf = Buffer.allocUnsafe(4);
-                            floatBuf.writeFloatBE(timeInSeconds, 0);
-                            oscData = Buffer.concat([oscData, floatBuf]);
-                            
-                            console.log('📡 Sending OSC /time message:', timeInSeconds);
-                            oscSocket.send(oscData, 8000, '127.0.0.1', (err) => {
-                                oscSocket.close();
-                                if (err) {
-                                    console.error('❌ OSC send error:', err);
-                                    resolve({ success: false, error: err.message });
-                                } else {
-                                    console.log('✅ Playhead moved to bar', barNumber, 'via OSC');
+                            const req = http.get({ host: '127.0.0.1', port, path: actionPath }, (res2) => {
+                                let actionData = '';
+                                res2.on('data', chunk => actionData += chunk);
+                                res2.on('end', () => {
+                                    console.log('✅ Goto bar script triggered, status:', res2.statusCode);
+                                    console.log('📝 Response:', actionData);
                                     resolve({ success: true });
-                                }
+                                });
                             });
-                        } catch (parseErr) {
-                            console.error('❌ Error parsing tempo or sending OSC:', parseErr);
-                            resolve({ success: false, error: parseErr.message });
-                        }
+                            
+                            req.on('error', (e) => {
+                                console.error('❌ Failed to trigger goto bar script:', e.message);
+                                console.warn('⚠️  Falling back to CLI method...');
+                                tryCLI();
+                            });
+                            
+                            req.setTimeout(5000, () => {
+                                console.warn('⚠️  Request timeout - falling back to CLI');
+                                tryCLI();
+                            });
+                        }, 100); // Small delay to ensure ExtState is written
                     });
-                }).on('error', (tempoErr) => {
-                    console.warn('⚠️  Tempo API failed, using default 120 BPM:', tempoErr.message);
-                    // Fallback: use 120 BPM if we can't get tempo
-                    const tempo = 120.0;
-                    const beatsPerBar = 4;
-                    const secondsPerBeat = 60.0 / tempo;
-                    const barIndex = barNumber - 1;
-                    const timeInSeconds = barIndex * beatsPerBar * secondsPerBeat;
-                    
-                    console.log('📡 Calculated time for bar', barNumber, ':', timeInSeconds, 'seconds @ default', tempo, 'BPM');
-                    
-                    const dgram = require('dgram');
-                    const oscSocket = dgram.createSocket('udp4');
-                    const address = '/time';
-                    let oscData = Buffer.from(address + '\x00', 'utf-8');
-                    while (oscData.length % 4 !== 0) oscData = Buffer.concat([oscData, Buffer.from([0])]);
-                    let typeTag = Buffer.from(',f\x00\x00', 'utf-8');
-                    oscData = Buffer.concat([oscData, typeTag]);
-                    const floatBuf = Buffer.allocUnsafe(4);
-                    floatBuf.writeFloatBE(timeInSeconds, 0);
-                    oscData = Buffer.concat([oscData, floatBuf]);
-                    
-                    oscSocket.send(oscData, 8000, '127.0.0.1', (err) => {
-                        oscSocket.close();
-                        if (err) {
-                            resolve({ success: false, error: err.message });
-                        } else {
-                            resolve({ success: true });
-                        }
-                    });
+                }).on('error', (e) => {
+                    console.error('❌ Failed to set ExtState:', e.message);
+                    console.warn('⚠️  Falling back to CLI method...');
+                    tryCLI();
                 });
             } catch (e) {
                 console.error('❌ Exception in tryWeb:', e.message);
