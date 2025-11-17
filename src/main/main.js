@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, session, systemPreferences } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { exec, spawn, execSync, execFile } = require('child_process');
@@ -320,7 +320,45 @@ class DAWRVApp {
         });
     }
 
-    startVoiceListener() {
+    async requestMicrophonePermission() {
+        if (process.platform === 'darwin') {
+            try {
+                const status = systemPreferences.getMediaAccessStatus('microphone');
+                console.log('🎤 Current microphone permission status:', status);
+                
+                if (status === 'not-determined' || status === 'denied') {
+                    console.log('🎤 Requesting microphone permission...');
+                    const granted = await systemPreferences.askForMediaAccess('microphone');
+                    console.log('🎤 Microphone permission granted:', granted);
+                    return granted;
+                } else if (status === 'granted') {
+                    console.log('✅ Microphone permission already granted');
+                    return true;
+                } else if (status === 'restricted') {
+                    console.error('❌ Microphone access is restricted by system policy');
+                    return false;
+                }
+            } catch (error) {
+                console.error('❌ Error requesting microphone permission:', error);
+                return false;
+            }
+        }
+        // Non-macOS platforms don't need this check
+        return true;
+    }
+
+    async startVoiceListener() {
+        // Request microphone permission first (macOS only)
+        const hasPermission = await this.requestMicrophonePermission();
+        if (!hasPermission) {
+            console.error('❌ Microphone permission not granted. Cannot start voice listener.');
+            if (this.mainWindow) {
+                this.mainWindow.webContents.send('voice-engine-error', 
+                    'Microphone access denied. Please grant permission in System Settings → Privacy & Security → Microphone');
+            }
+            return;
+        }
+
         try {
             if (this.voiceListenerProcess && !this.voiceListenerProcess.killed) {
                 console.log('Voice listener already running');

@@ -120,14 +120,15 @@ def urlopen_with_ssl_fix(*args, **kwargs):
     return original_urlopen(*args, **kwargs)
 urllib.request.urlopen = urlopen_with_ssl_fix
 
-# Load Whisper model - use LARGE model for best possible accuracy!
+# Load Whisper model - use SMALL model for speed & good accuracy!
 # Options: tiny, base, small, medium, large
-# 'large' provides the highest accuracy for voice commands (slower but much better)
-print('📥 Loading Whisper "large" model (first time: ~3GB download, 30-60 sec)...', flush=True)
+# 'small' provides excellent accuracy (85-90%) with FAST processing (~0.5-1 sec)
+# 'large' provides maximum accuracy (92-97%) but slower (~1.5-2.5 sec)
+print('📥 Loading Whisper "small" model (fast & accurate)...', flush=True)
 try:
-    model = whisper.load_model("large")
-    print('✅ Whisper "large" model loaded! (MAXIMUM ACCURACY - 92-97%)', flush=True)
-    print('   Processing time: ~1.5-2.5 seconds per command', flush=True)
+    model = whisper.load_model("small")
+    print('✅ Whisper "small" model loaded! (FAST - 85-90% accuracy)', flush=True)
+    print('   Processing time: ~0.5-1 second per command', flush=True)
 except Exception as e:
     print(f'⚠️  Failed to load large model: {e}', flush=True)
     print('   Trying medium model as fallback...', flush=True)
@@ -189,7 +190,7 @@ def record_audio():
     frames = []
     
     # Voice activity detection parameters - tuned for better speech capture
-    SILENCE_THRESHOLD = 300  # RMS threshold for silence (lowered to catch quieter speech)
+    SILENCE_THRESHOLD = 50   # RMS threshold for silence (VERY low for quiet mics)
     MIN_SPEECH_CHUNKS = 3    # Minimum chunks of speech to consider valid (faster detection)
     MAX_SILENCE_CHUNKS = 12  # Max silence chunks before stopping (more patience for pauses)
     

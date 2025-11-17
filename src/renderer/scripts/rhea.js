@@ -2339,6 +2339,12 @@ class RHEAController {
             } catch (error) {
                 console.error('❌ AI processing failed, falling back to keyword matching:', error);
                 
+                // If API key is invalid, disable AI temporarily
+                if (error.message && error.message.includes('Invalid API key')) {
+                    console.warn('⚠️  Invalid API key - disabling AI, using keyword matching only');
+                    this.useAI = false; // Temporarily disable to avoid repeated errors
+                }
+                
                 // If rate limited, inform user (but don't speak if fallback is working)
                 if (error.message && error.message.includes('Rate limit')) {
                     console.log('⏳ Rate limit detected - using keyword matching as fallback');
