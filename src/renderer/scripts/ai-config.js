@@ -11,44 +11,9 @@ class AIConfigManager {
     }
     
     init() {
-        // Create config button in UI (if not exists)
-        this.createConfigButton();
-    }
-    
-    createConfigButton() {
-        // Add AI config button to the RHEA panel
-        const rheaPanel = document.querySelector('.rhea-panel');
-        if (!rheaPanel) return;
-        
-        // Check if button already exists
-        if (document.getElementById('ai-config-btn')) return;
-        
-        const configBtn = document.createElement('button');
-        configBtn.id = 'ai-config-btn';
-        configBtn.className = 'ai-config-btn';
-        configBtn.innerHTML = '🤖 AI Settings';
-        configBtn.style.cssText = `
-            margin: 10px auto;
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            border-radius: 8px;
-            color: white;
-            font-size: 14px;
-            font-weight: bold;
-            cursor: pointer;
-            display: block;
-            transition: transform 0.2s;
-        `;
-        configBtn.onmouseover = () => configBtn.style.transform = 'scale(1.05)';
-        configBtn.onmouseout = () => configBtn.style.transform = 'scale(1)';
-        configBtn.onclick = () => this.showConfigModal();
-        
-        // Insert after voice controls
-        const voiceControls = document.querySelector('.voice-controls');
-        if (voiceControls) {
-            voiceControls.parentNode.insertBefore(configBtn, voiceControls.nextSibling);
-        }
+        // Don't create button - it's now in the premium UI grid
+        // Just ensure the modal is ready
+        console.log('✅ AI Config Manager initialized');
     }
     
     showConfigModal() {

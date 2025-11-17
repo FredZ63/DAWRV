@@ -191,12 +191,15 @@ class RHEAController {
         setTimeout(() => {
             if (typeof AIConfigManager !== 'undefined') {
                 this.aiConfigManager = new AIConfigManager(this);
+                window.aiConfigManager = this.aiConfigManager; // Expose to window
             }
             if (typeof KnowledgeUIManager !== 'undefined') {
                 this.knowledgeUIManager = new KnowledgeUIManager(this);
+                window.knowledgeUI = this.knowledgeUIManager; // Expose to window
             }
             if (typeof TTSConfigManager !== 'undefined') {
                 this.ttsConfigManager = new TTSConfigManager(this);
+                window.ttsConfigUI = this.ttsConfigManager; // Expose to window
             }
         }, 1000);
     }

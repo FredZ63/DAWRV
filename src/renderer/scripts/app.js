@@ -67,19 +67,19 @@ if (window.AudioConfigManager && window.AudioSettingsUI) {
     console.log('✅ Audio Settings initialized');
 }
 
-// Setup AI Settings button (if ai-config.js has initialized)
+// Setup AI Settings button
 const aiSettingsBtn = document.getElementById('ai-settings-btn');
 if (aiSettingsBtn) {
     aiSettingsBtn.addEventListener('click', () => {
-        // Check if AI config manager exists
-        if (typeof openAIConfig === 'function') {
-            openAIConfig();
-        } else {
-            console.log('Opening AI Settings...');
-            // The AI config modal should be initialized by ai-config.js
-            const event = new CustomEvent('open-ai-settings');
-            window.dispatchEvent(event);
-        }
+        console.log('🤖 Opening AI Settings...');
+        // Wait for AIConfigManager to be available
+        setTimeout(() => {
+            if (window.aiConfigManager && typeof window.aiConfigManager.showConfigModal === 'function') {
+                window.aiConfigManager.showConfigModal();
+            } else {
+                alert('AI Settings will be available once RHEA is initialized. Please wait a moment and try again.');
+            }
+        }, 100);
     });
 }
 
@@ -87,9 +87,14 @@ if (aiSettingsBtn) {
 const knowledgeBtn = document.getElementById('knowledge-import-btn');
 if (knowledgeBtn) {
     knowledgeBtn.addEventListener('click', () => {
-        console.log('Opening Knowledge Import...');
-        const event = new CustomEvent('open-knowledge-import');
-        window.dispatchEvent(event);
+        console.log('📚 Opening Knowledge Import...');
+        setTimeout(() => {
+            if (window.knowledgeUI && typeof window.knowledgeUI.showModal === 'function') {
+                window.knowledgeUI.showModal();
+            } else {
+                alert('Knowledge Import will be available once RHEA is initialized. Please wait a moment and try again.');
+            }
+        }, 100);
     });
 }
 
@@ -97,9 +102,16 @@ if (knowledgeBtn) {
 const ttsBtn = document.getElementById('tts-settings-btn');
 if (ttsBtn) {
     ttsBtn.addEventListener('click', () => {
-        console.log('Opening Voice Settings...');
-        const event = new CustomEvent('open-tts-settings');
-        window.dispatchEvent(event);
+        console.log('🔊 Opening Voice Settings...');
+        setTimeout(() => {
+            if (window.ttsConfigUI && typeof window.ttsConfigUI.show === 'function') {
+                window.ttsConfigUI.show();
+            } else if (window.openTTSConfig && typeof window.openTTSConfig === 'function') {
+                window.openTTSConfig();
+            } else {
+                alert('Voice Settings will be available once RHEA is initialized. Please wait a moment and try again.');
+            }
+        }, 100);
     });
 }
 

@@ -20,34 +20,8 @@ class TTSConfigManager {
         
         if (document.getElementById('tts-config-btn')) return;
         
-        const btn = document.createElement('button');
-        btn.id = 'tts-config-btn';
-        btn.className = 'tts-config-btn';
-        btn.innerHTML = '🎤 Voice Settings';
-        btn.style.cssText = `
-            margin: 10px auto;
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            border-radius: 8px;
-            color: white;
-            font-size: 14px;
-            font-weight: bold;
-            cursor: pointer;
-            display: block;
-            transition: transform 0.2s;
-        `;
-        btn.onmouseover = () => btn.style.transform = 'scale(1.05)';
-        btn.onmouseout = () => btn.style.transform = 'scale(1)';
-        btn.onclick = () => this.showModal();
-        
-        // Insert after AI config button or knowledge base button
-        const kbBtn = document.getElementById('kb-import-btn');
-        const aiBtn = document.getElementById('ai-config-btn');
-        const insertAfter = kbBtn || aiBtn;
-        if (insertAfter) {
-            insertAfter.parentNode.insertBefore(btn, insertAfter.nextSibling);
-        }
+        // Don't create button - it's now in the premium UI grid
+        console.log('✅ TTS Config Manager initialized');
     }
     
     showModal() {
