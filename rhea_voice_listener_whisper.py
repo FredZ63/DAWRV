@@ -124,12 +124,12 @@ urllib.request.urlopen = urlopen_with_ssl_fix
 # Options: tiny, base, small, medium, large
 # 'small' provides excellent accuracy (85-90%) with FAST processing (~0.5-1 sec)
 # 'large' provides maximum accuracy (92-97%) but slower (~1.5-2.5 sec)
-print('📥 Loading Whisper "base" model (fastest startup)...', flush=True)
+print('📥 Loading Whisper "tiny" model (ultra-fast startup)...', flush=True)
 try:
-    model = whisper.load_model("base")
-    print('✅ Whisper "base" model loaded! (FASTEST - 5-10 second startup)', flush=True)
-    print('   Processing time: ~0.3-0.7 seconds per command', flush=True)
-    print('   Accuracy: 80-85% (good for voice commands)', flush=True)
+    model = whisper.load_model("tiny")
+    print('✅ Whisper "tiny" model loaded! (ULTRA-FAST - 2-3 second startup)', flush=True)
+    print('   Processing time: ~0.2-0.4 seconds per command', flush=True)
+    print('   Accuracy: 75-80% (adequate for simple voice commands)', flush=True)
 except Exception as e:
     print(f'⚠️  Failed to load base model: {e}', flush=True)
     print('   Trying tiny model as fallback...', flush=True)
@@ -298,8 +298,12 @@ while True:
         
         # Transcribe with Whisper (mic is PAUSED during this - Whisper processes synchronously)
         if audio_data is not None:
-            print('🔄 Processing speech... (mic paused for 1-2 seconds)', flush=True)
+            print('🔄 Processing... (mic PAUSED - Whisper limitation)', flush=True)
         text = transcribe_audio(audio_data)
+        
+        # Log when mic becomes active again
+        if text is None or len(text) == 0:
+            print('🎤 Mic ACTIVE again - ready for next command', flush=True)
         
         if text and len(text) > 0:
             print(f'✅ Heard: "{text}"', flush=True)
