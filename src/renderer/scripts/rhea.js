@@ -2079,6 +2079,39 @@ class RHEAController {
      */
     async processMixerCommand(action, text) {
         try {
+            // Mixer Visibility Commands (use REAPER action IDs)
+            if (action === 'showmixer' || action === 'hidemixer' || action === 'togglemixer' || 
+                action === 'mixerwindow' || action === 'openmixer' || action === 'closemixer') {
+                // All these actions map to the same toggle action (40078)
+                const actionId = this.reaperActions[action] || 40078;
+                const result = await window.api.executeReaperAction(actionId);
+                return result.success ? {
+                    success: true,
+                    message: 'Toggled mixer window',
+                    context: {}
+                } : result;
+            }
+            
+            if (action === 'showmcp' || action === 'hidemcp' || action === 'togglemcp') {
+                const actionId = this.reaperActions[action] || 40075;
+                const result = await window.api.executeReaperAction(actionId);
+                return result.success ? {
+                    success: true,
+                    message: 'Toggled mixer control panel',
+                    context: {}
+                } : result;
+            }
+            
+            if (action === 'showtcp' || action === 'hidetcp' || action === 'toggletcp') {
+                const actionId = this.reaperActions[action] || 40074;
+                const result = await window.api.executeReaperAction(actionId);
+                return result.success ? {
+                    success: true,
+                    message: 'Toggled track control panel',
+                    context: {}
+                } : result;
+            }
+            
             // Master Track Controls (via OSC)
             if (action === 'master_mute' || action === 'mastermute') {
                 // Mute master track (track 0 in OSC)
@@ -2143,6 +2176,68 @@ class RHEAController {
                     success: false, 
                     error: 'Reset all faders is not yet implemented. Please reset each track individually.' 
                 };
+            }
+            
+            // Global Track Control Actions (use REAPER action IDs)
+            if (action === 'muteall') {
+                const actionId = this.reaperActions['muteall'] || 40339;
+                const result = await window.api.executeReaperAction(actionId);
+                return result.success ? {
+                    success: true,
+                    message: 'Muted all tracks',
+                    context: {}
+                } : result;
+            }
+            
+            if (action === 'unmuteall') {
+                const actionId = this.reaperActions['unmuteall'] || 40340;
+                const result = await window.api.executeReaperAction(actionId);
+                return result.success ? {
+                    success: true,
+                    message: 'Unmuted all tracks',
+                    context: {}
+                } : result;
+            }
+            
+            if (action === 'unsololall') {
+                const actionId = this.reaperActions['unsololall'] || 40340;
+                const result = await window.api.executeReaperAction(actionId);
+                return result.success ? {
+                    success: true,
+                    message: 'Unsoloed all tracks',
+                    context: {}
+                } : result;
+            }
+            
+            if (action === 'unarmall') {
+                const actionId = this.reaperActions['unarmall'] || 40491;
+                const result = await window.api.executeReaperAction(actionId);
+                return result.success ? {
+                    success: true,
+                    message: 'Unarmed all tracks',
+                    context: {}
+                } : result;
+            }
+            
+            // Master volume up/down (use REAPER action IDs)
+            if (action === 'mastervolumeup') {
+                const actionId = this.reaperActions['mastervolumeup'] || 40036;
+                const result = await window.api.executeReaperAction(actionId);
+                return result.success ? {
+                    success: true,
+                    message: 'Master volume increased',
+                    context: {}
+                } : result;
+            }
+            
+            if (action === 'mastervolumedown') {
+                const actionId = this.reaperActions['mastervolumedown'] || 40037;
+                const result = await window.api.executeReaperAction(actionId);
+                return result.success ? {
+                    success: true,
+                    message: 'Master volume decreased',
+                    context: {}
+                } : result;
             }
             
             return { success: false, error: 'Unknown mixer command' };
