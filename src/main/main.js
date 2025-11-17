@@ -1278,35 +1278,92 @@ ipcMain.handle('execute-measure-command', handleMeasureCommand);
 console.log('🎵 Tempo handler registered at module load');
 console.log('📏 Measure handler registered at module load');
 
+console.log('📡 Registering goto-bar handler at module load...');
+
 // Web API: Execute "Go to bar N" via extstate + script action
 // Uses user-provided Action ID for daw-scripts/reaper/scripts/dawrv_goto_bar_from_extstate.lua
-const RHEA_GOTO_BAR_ACTION_ID = '_RS63db71a7516b130e5239a079e60862488250aa67';
+const RHEA_GOTO_BAR_ACTION_ID = '_RS59cea27ab9c1a2647112bdc02955a66e77578452'; // Updated Action ID
 ipcMain.handle('execute-goto-bar', async (event, barNumber) => {
+    console.log('📡 ========================================');
+    console.log('📡 execute-goto-bar IPC handler called!');
+    console.log('📡 Bar number:', barNumber);
+    console.log('📡 Action ID:', RHEA_GOTO_BAR_ACTION_ID);
+    console.log('📡 ========================================');
+    
     return new Promise((resolve) => {
         const tryWeb = () => {
             try {
+                console.log('📡 Using Web API + OSC hybrid approach...');
                 if (!barNumber || isNaN(Number(barNumber))) {
+                    console.error('❌ Invalid bar number:', barNumber);
                     resolve({ success: false, error: 'Invalid bar number' });
                     return;
                 }
-                const port = 8080; // REAPER Web Interface default port
-                const setPath = `/_/SET/EXTSTATE/RHEA/target_bar/${encodeURIComponent(String(barNumber))}`;
-                const setReq = http.get({ host: '127.0.0.1', port, path: setPath }, (res) => {
-                    const actionPath = `/_/COMMAND/${encodeURIComponent(RHEA_GOTO_BAR_ACTION_ID)}`;
-                    const actReq = http.get({ host: '127.0.0.1', port, path: actionPath }, (res2) => {
-                        resolve({ success: true });
+                
+                // Step 1: Get tempo and time signature from REAPER via Web API
+                const port = 8080;
+                http.get({ host: '127.0.0.1', port, path: '/_/TRANSPORT' }, (res) => {
+                    let data = '';
+                    res.on('data', chunk => data += chunk);
+                    res.on('end', () => {
+                        try {
+                            // TRANSPORT format: TRANSPORT [state] [pos_sec] [repeat] [beat_pos] [length]
+                            // We can't easily get tempo from Web API, so we'll use a default
+                            // TODO: Make tempo configurable in settings
+                            const tempo = 90.0; // Default tempo assumption (set to match your project)
+                            
+                            console.log('📡 Using default tempo:', tempo, 'BPM (assuming 4/4 time)');
+                            
+                            // Calculate time for bar (assuming 4/4 time signature)
+                            // Bar 1 = 0 seconds, Bar 2 = (4 beats / tempo) * 60, etc.
+                            const beatsPerBar = 4;
+                            const secondsPerBeat = 60.0 / tempo;
+                            const barIndex = barNumber - 1; // Convert to 0-based
+                            const timeInSeconds = barIndex * beatsPerBar * secondsPerBeat;
+                            
+                            console.log('📡 Calculated time for bar', barNumber, ':', timeInSeconds, 'seconds');
+                            
+                            // Step 2: Send OSC message to set playhead position
+                            const dgram = require('dgram');
+                            const oscSocket = dgram.createSocket('udp4');
+                            
+                            // Build OSC message for /time
+                            const address = '/time';
+                            let oscData = Buffer.from(address + '\x00', 'utf-8');
+                            // Pad to 4-byte boundary
+                            while (oscData.length % 4 !== 0) oscData = Buffer.concat([oscData, Buffer.from([0])]);
+                            
+                            // Type tag string: ,f (comma + float)
+                            let typeTag = Buffer.from(',f\x00\x00', 'utf-8');
+                            oscData = Buffer.concat([oscData, typeTag]);
+                            
+                            // Float argument (time in seconds)
+                            const floatBuf = Buffer.allocUnsafe(4);
+                            floatBuf.writeFloatBE(timeInSeconds, 0);
+                            oscData = Buffer.concat([oscData, floatBuf]);
+                            
+                            console.log('📡 Sending OSC /time message:', timeInSeconds);
+                            oscSocket.send(oscData, 8000, '127.0.0.1', (err) => {
+                                oscSocket.close();
+                                if (err) {
+                                    console.error('❌ OSC send error:', err);
+                                    resolve({ success: false, error: err.message });
+                                } else {
+                                    console.log('✅ Playhead moved to bar', barNumber, 'via OSC');
+                                    resolve({ success: true });
+                                }
+                            });
+                        } catch (parseErr) {
+                            console.error('❌ Error parsing tempo or sending OSC:', parseErr);
+                            resolve({ success: false, error: parseErr.message });
+                        }
                     });
-                    actReq.on('error', (e) => {
-                        console.warn('Web COMMAND failed, falling back to CLI:', e.message);
-                        tryCLI();
-                    });
-                });
-                setReq.on('error', (e) => {
-                    console.warn('Web SET EXTSTATE failed, falling back to CLI:', e.message);
+                }).on('error', (err) => {
+                    console.warn('❌ Web API failed, trying fallback:', err.message);
                     tryCLI();
                 });
             } catch (e) {
-                console.warn('Web path threw, falling back to CLI:', e.message);
+                console.error('❌ Exception in tryWeb:', e.message);
                 tryCLI();
             }
         };

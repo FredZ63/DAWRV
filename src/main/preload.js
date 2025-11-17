@@ -76,9 +76,16 @@ contextBridge.exposeInMainWorld('api', {
         );
         return result;
     },
-    executeGotoBar: (bar) => {
+    executeGotoBar: async (bar) => {
         console.log('🔌 [PRELOAD] executeGotoBar called:', bar);
-        return ipcRenderer.invoke('execute-goto-bar', bar);
+        try {
+            const result = await ipcRenderer.invoke('execute-goto-bar', bar);
+            console.log('🔌 [PRELOAD] executeGotoBar result:', result);
+            return result;
+        } catch (error) {
+            console.error('🔌 [PRELOAD] executeGotoBar error:', error);
+            return { success: false, error: error.message };
+        }
     }
 });
 
