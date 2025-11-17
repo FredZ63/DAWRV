@@ -120,20 +120,26 @@ def urlopen_with_ssl_fix(*args, **kwargs):
     return original_urlopen(*args, **kwargs)
 urllib.request.urlopen = urlopen_with_ssl_fix
 
-# Load Whisper model - use base model for good balance of speed and accuracy
+# Load Whisper model - use small model for better accuracy with DAW commands
 # Options: tiny, base, small, medium, large
-# 'base' is recommended for command recognition - fast and accurate
+# 'small' is recommended for command recognition - more accurate than base, still fast
 try:
-    model = whisper.load_model("base")
-    print('✅ Whisper model loaded!', flush=True)
+    model = whisper.load_model("small")
+    print('✅ Whisper "small" model loaded! (Better accuracy)', flush=True)
 except Exception as e:
-    print(f'⚠️  Failed to load base model: {e}', flush=True)
-    print('   Trying tiny model as fallback...', flush=True)
+    print(f'⚠️  Failed to load small model: {e}', flush=True)
+    print('   Trying base model as fallback...', flush=True)
     try:
-        model = whisper.load_model("tiny")
-        print('✅ Whisper tiny model loaded!', flush=True)
+        model = whisper.load_model("base")
+        print('✅ Whisper base model loaded!', flush=True)
     except Exception as e2:
-        print(f'❌ Failed to load tiny model: {e2}', flush=True)
+        print(f'❌ Failed to load base model: {e2}', flush=True)
+        print('   Trying tiny model as last resort...', flush=True)
+        try:
+            model = whisper.load_model("tiny")
+            print('✅ Whisper tiny model loaded!', flush=True)
+        except Exception as e3:
+            print(f'❌ Failed to load tiny model: {e3}', flush=True)
         print('', flush=True)
         print('💡 TROUBLESHOOTING:', flush=True)
         print('   1. Check your internet connection (needed for first-time model download)', flush=True)
@@ -146,12 +152,12 @@ except Exception as e:
 print('🎧 RHEA is now listening for voice commands...', flush=True)
 print('Say: play, stop, record, undo, save, or new track\n', flush=True)
 
-# Audio recording setup
+# Audio recording setup - optimized for clear speech recognition
 CHUNK = 1024
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 16000  # Whisper works best with 16kHz
-RECORD_SECONDS = 3  # Record 3 seconds at a time
+RECORD_SECONDS = 5  # Record 5 seconds at a time (longer for complete phrases)
 
 try:
     audio = pyaudio.PyAudio()
@@ -162,8 +168,13 @@ except Exception as e:
 
 command_file = '/tmp/dawrv_voice_command.txt'
 
+def calculate_rms(audio_chunk):
+    """Calculate RMS (root mean square) for audio chunk to detect voice activity"""
+    audio_array = np.frombuffer(audio_chunk, dtype=np.int16)
+    return np.sqrt(np.mean(audio_array**2))
+
 def record_audio():
-    """Record audio from microphone"""
+    """Record audio from microphone with voice activity detection"""
     stream = audio.open(
         format=FORMAT,
         channels=CHANNELS,
@@ -175,9 +186,39 @@ def record_audio():
     print('🎧 Listening...', flush=True)
     frames = []
     
-    for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
-        data = stream.read(CHUNK)
+    # Voice activity detection parameters
+    SILENCE_THRESHOLD = 500  # RMS threshold for silence (adjust based on mic)
+    MIN_SPEECH_CHUNKS = 5    # Minimum chunks of speech to consider valid
+    MAX_SILENCE_CHUNKS = 10  # Max silence chunks before stopping
+    
+    speech_detected = False
+    speech_chunks = 0
+    silence_chunks = 0
+    
+    # Record up to RECORD_SECONDS, but stop early if silence detected after speech
+    max_chunks = int(RATE / CHUNK * RECORD_SECONDS)
+    
+    for i in range(max_chunks):
+        data = stream.read(CHUNK, exception_on_overflow=False)
         frames.append(data)
+        
+        # Calculate audio level (RMS)
+        rms = calculate_rms(data)
+        
+        # Detect voice activity
+        if rms > SILENCE_THRESHOLD:
+            speech_chunks += 1
+            silence_chunks = 0
+            if not speech_detected and speech_chunks >= MIN_SPEECH_CHUNKS:
+                speech_detected = True
+                print('🎤 Speech detected...', flush=True)
+        else:
+            if speech_detected:
+                silence_chunks += 1
+                # Stop recording if we've had enough silence after detecting speech
+                if silence_chunks >= MAX_SILENCE_CHUNKS:
+                    print('✅ Complete phrase captured', flush=True)
+                    break
     
     stream.stop_stream()
     stream.close()
@@ -189,10 +230,23 @@ def record_audio():
     return audio_np
 
 def transcribe_audio(audio_data):
-    """Transcribe audio using Whisper"""
+    """Transcribe audio using Whisper with REAPER-specific optimization"""
     try:
         # Whisper expects audio at 16kHz, which we're already providing
-        result = model.transcribe(audio_data, language='en', task='transcribe')
+        # Add initial_prompt to improve recognition of DAW-specific terms
+        # This helps Whisper understand technical audio production vocabulary
+        prompt = "Commands for REAPER: play, stop, record, undo, tempo, BPM, bar, marker, loop, mute, solo, track"
+        
+        result = model.transcribe(
+            audio_data, 
+            language='en',           # English only for speed
+            task='transcribe',       # Transcribe (not translate)
+            initial_prompt=prompt,   # Help with DAW vocabulary
+            fp16=False,              # Use FP32 for better accuracy on CPU
+            no_speech_threshold=0.4, # Lower threshold to catch quiet speech
+            logprob_threshold=-0.8,  # More lenient with unclear audio
+            compression_ratio_threshold=1.8  # Allow more natural speech patterns
+        )
         text = result['text'].strip()
         return text
     except Exception as e:
