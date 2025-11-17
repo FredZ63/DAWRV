@@ -248,12 +248,19 @@ def transcribe_audio(audio_data):
         
         # Expanded vocabulary prompt with more REAPER commands
         # This helps Whisper understand technical audio production vocabulary
+        # IMPORTANT: Include numbers with "bar" to prevent "bar ten" → "Barton" errors
         prompt = ("REAPER DAW commands: play, stop, record, pause, undo, redo, "
                   "tempo, BPM, set tempo to, increase tempo, decrease tempo, "
                   "bar, measure, go to bar, play from bar, loop bars, "
-                  "marker, add marker, next marker, previous marker, "
+                  "bar 1, bar 2, bar 3, bar 4, bar 5, bar 6, bar 7, bar 8, bar 9, bar 10, "
+                  "bar 11, bar 12, bar 16, bar 20, bar 32, bar 64, "
+                  "measure 1, measure 2, measure 4, measure 8, "
+                  "marker, add marker, next marker, previous marker, go to marker, "
+                  "marker 1, marker 2, marker 3, marker 4, marker 5, "
                   "mute, unmute, solo, unsolo, track, new track, delete track, "
-                  "save, save as, zoom in, zoom out, rewind, fast forward")
+                  "track 1, track 2, track 3, track 4, track 5, "
+                  "save, save as, zoom in, zoom out, rewind, fast forward, "
+                  "metronome, click, count in, pre-roll, loop, timeline")
         
         result = model.transcribe(
             audio_data, 
