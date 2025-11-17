@@ -76,13 +76,13 @@ class RHEAController {
             'decreasetempo': 'tempo_decrease',  // Custom - uses script
             'gettempo': 'tempo_get',  // Custom - uses script
             
-            // Mixer Controls
-            'showmixer': 40078,  // View: Toggle mixer visible
-            'hidemixer': 40078,  // Same action (toggle)
-            'togglemixer': 40078,  // View: Toggle mixer visible
-            'mixerwindow': 40078,
-            'openmixer': 40078,
-            'closemixer': 40078,
+            // Mixer Controls - Use specific show/hide actions
+            'showmixer': 40083,  // View: Toggle mixer visible (from View menu ⌘M)
+            'hidemixer': 40083,  // Toggle (REAPER only has toggle, not separate show/hide)
+            'togglemixer': 40083,  // View: Toggle mixer visible
+            'mixerwindow': 40083,
+            'openmixer': 40083,
+            'closemixer': 40083,
             
             // Master Track Controls
             'mastermute': 'master_mute',  // Custom - mute master track
@@ -2146,8 +2146,8 @@ class RHEAController {
                 }
                 
                 if (shouldToggle) {
-                    console.log('🎛️ Toggling mixer (action 40078)');
-                    const result = await window.api.executeReaperAction(40078);
+                    console.log('🎛️ Toggling mixer (action 40083 - View: Toggle mixer visible)');
+                    const result = await window.api.executeReaperAction(40083);
                     console.log('🎛️ Result:', result);
                     
                     return result.success ? {
