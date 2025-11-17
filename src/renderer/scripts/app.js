@@ -39,6 +39,34 @@ function showComingSoonModal(daw) {
     alert(`\${dawNames[daw]} Integration Coming Soon!\n\nCurrently Supported:\n✅ REAPER (Full Support)\n\n🚧 In Development:\n• Logic Pro\n• Pro Tools\n• Ableton Live\n• Studio One 7`);
 }
 
+// Initialize Audio Settings
+let audioConfigManager;
+let audioSettingsUI;
+
+if (window.AudioConfigManager && window.AudioSettingsUI) {
+    audioConfigManager = new AudioConfigManager();
+    audioSettingsUI = new AudioSettingsUI(audioConfigManager);
+    
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            audioSettingsUI.init();
+        });
+    } else {
+        audioSettingsUI.init();
+    }
+    
+    // Setup audio settings button
+    const audioSettingsBtn = document.getElementById('audio-settings-btn');
+    if (audioSettingsBtn) {
+        audioSettingsBtn.addEventListener('click', () => {
+            audioSettingsUI.open();
+        });
+    }
+    
+    console.log('✅ Audio Settings initialized');
+}
+
 // Log startup
 console.log('✅ DAWRV Application Initialized');
 console.log('🎤 Waiting for RHEA voice engine...');
