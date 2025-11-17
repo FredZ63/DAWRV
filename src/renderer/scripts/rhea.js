@@ -123,14 +123,15 @@ class RHEAController {
         // Command deduplication
         this.lastProcessedCommand = null;
         this.lastProcessedTime = 0;
-        this.commandCooldown = 2000; // Don't process same command within 2 seconds (prevents accidental duplicates)
+        this.commandCooldown = 1000; // Don't process same command within 1 second (prevents accidental duplicates)
         this.isProcessingCommand = false; // Prevent concurrent processing
         this.commandHistory = []; // Track recent commands to prevent rapid repeats
         
         // Feedback suppression
         this.isSpeaking = false; // Track when RHEA is speaking
         this.speechEndTime = 0; // Track when speech ended
-        this.speechCooldown = 800; // Ignore commands for 0.8 seconds after speech ends (fast response, minimal feedback risk)
+        this.speechCooldown = 500; // Ignore commands for 0.5 seconds after speech ends (very fast, minimal feedback risk)
+        this.silentMode = false; // If true, skip verbal feedback for faster workflow
         
         // Subscribe to DAW state updates (transport position, playing, etc.)
         try {
@@ -3173,6 +3174,23 @@ class RHEAController {
     async speak(text) {
         if (!text || text.trim() === '') return;
         
+        // SPEED OPTIMIZATION: Skip verbal feedback for standard commands
+        // Only speak for errors, confirmations, or conversational responses
+        const silentMessages = [
+            'starting playback', 'stopping playback', 'recording started', 'pausing playback',
+            'opening mixer', 'closing mixer', 'toggling mixer', 'muting track', 'unmuting track',
+            'soloing track', 'unsoloing track', 'zooming in', 'zooming out', 'rewinding',
+            'going to end', 'toggling loop', 'undoing', 'redoing', 'cutting', 'copying', 'pasting'
+        ];
+        
+        const textLower = text.toLowerCase();
+        if (silentMessages.some(msg => textLower.includes(msg))) {
+            console.log('RHEA says (silent mode):', text);
+            // Update status but don't speak for instant response
+            this.speechEndTime = Date.now(); // Set to now so cooldown is minimal
+            return;
+        }
+        
         console.log('RHEA says:', text);
         
         // Mark as speaking to prevent feedback loops
@@ -3201,7 +3219,7 @@ class RHEAController {
                 // Wait for speech to actually finish before resetting flag
                 // Estimate speech duration based on text length (rough estimate: 180 words per minute = 333ms per word average)
                 const wordCount = text.split(' ').length;
-                const estimatedDuration = Math.max(1000, wordCount * 350); // At least 1 second
+                const estimatedDuration = Math.max(600, wordCount * 250); // At least 0.6 seconds, 250ms per word
                 
                 setTimeout(() => {
                     this.isSpeaking = false;
