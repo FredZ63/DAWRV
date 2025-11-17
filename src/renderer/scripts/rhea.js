@@ -129,7 +129,7 @@ class RHEAController {
         // Feedback suppression
         this.isSpeaking = false; // Track when RHEA is speaking
         this.speechEndTime = 0; // Track when speech ended
-        this.speechCooldown = 2000; // Ignore commands for 2 seconds after speech ends
+        this.speechCooldown = 3500; // Ignore commands for 3.5 seconds after speech ends (increased to prevent feedback loop)
         
         // Subscribe to DAW state updates (transport position, playing, etc.)
         try {
