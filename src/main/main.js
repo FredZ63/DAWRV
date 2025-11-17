@@ -331,14 +331,22 @@ class DAWRVApp {
             // Continue to start new process
         }
 
+        // Determine which voice engine to use (Deepgram preferred, Whisper fallback)
+        const useDeepgram = process.env.DEEPGRAM_API_KEY && process.env.DEEPGRAM_API_KEY.length > 0;
+        const scriptFilename = useDeepgram ? 'rhea_voice_listener_deepgram.py' : 'rhea_voice_listener_whisper.py';
+        
+        console.log('🎤 Voice Engine Selection:');
+        console.log('   Deepgram API Key set:', !!process.env.DEEPGRAM_API_KEY);
+        console.log('   Selected engine:', useDeepgram ? 'Deepgram Nova-2 (Fast)' : 'Whisper Large (Offline)');
+        
         // Resolve script path - handle both development and packaged app
         let scriptPath;
         if (app.isPackaged) {
             // In packaged app, scripts are in Resources
-            scriptPath = path.join(process.resourcesPath, 'rhea_voice_listener.py');
+            scriptPath = path.join(process.resourcesPath, scriptFilename);
         } else {
             // In development, use project root (__dirname is src/main, so go up 2 levels)
-            scriptPath = path.resolve(__dirname, '../../rhea_voice_listener.py');
+            scriptPath = path.resolve(__dirname, '../../' + scriptFilename);
         }
         
         console.log('🎤 Starting Python voice listener...');
@@ -499,6 +507,7 @@ class DAWRVApp {
             console.log(`❌ Signal: ${signal}`);
             console.log(`❌ Process PID was: ${this.voiceListenerProcess ? this.voiceListenerProcess.pid : 'unknown'}`);
             console.log(`❌ Was listening: ${this.isVoiceListening}`);
+            console.log(`❌ Was using: ${useDeepgram ? 'Deepgram' : 'Whisper'}`);
             
             // Show captured output for diagnostics
             if (stdoutBuffer) {
@@ -514,6 +523,23 @@ class DAWRVApp {
                 console.log('❌ No STDERR captured');
             }
             console.log('❌ ========================================');
+            
+            // If Deepgram failed (exit code 1), automatically fall back to Whisper
+            if (useDeepgram && code === 1 && this.isVoiceListening) {
+                console.log('⚠️  Deepgram failed, falling back to Whisper...');
+                // Clear the API key temporarily to force Whisper
+                const savedKey = process.env.DEEPGRAM_API_KEY;
+                delete process.env.DEEPGRAM_API_KEY;
+                
+                // Give it a moment, then restart with Whisper
+                setTimeout(() => {
+                    this.voiceListenerProcess = null;
+                    this.startVoiceListener();
+                    // Restore the API key for next time
+                    process.env.DEEPGRAM_API_KEY = savedKey;
+                }, 1000);
+                return; // Don't show error, we're retrying
+            }
             
             const wasListening = this.isVoiceListening;
             const processPid = this.voiceListenerProcess ? this.voiceListenerProcess.pid : 'unknown';
