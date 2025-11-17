@@ -1413,7 +1413,7 @@ end
 console.log('📡 Goto-bar web handler registered');
 
 // Track Control: Execute track commands via CLI (Web API doesn't work for running REAPER)
-const RHEA_TRACK_CONTROL_ACTION_ID = '_RS55dfea6fa20325544ef5f17fec973ecf3822a422';
+const RHEA_TRACK_CONTROL_ACTION_ID = '_RS10c85043a2d1d7b4f186ead71ad36fe3a89ebdb7';
 ipcMain.handle('execute-track-command', async (event, command, trackNumber, value) => {
     console.log('🎚️ ========================================');
     console.log('🎚️ execute-track-command IPC handler called!');
@@ -1468,10 +1468,19 @@ end
             
             console.log('🎚️ Executing via REAPER CLI...');
             execFile(reaperPath, ['-nonewinst', '-run', scriptPath], { timeout: 4000 }, (error, stdout, stderr) => {
+                // Don't delete script immediately for debugging
+                console.log('🎚️ Script stdout:', stdout || '(empty)');
+                console.log('🎚️ Script stderr:', stderr || '(empty)');
+                
+                if (error) {
+                    console.error('❌ CLI execution error:', error.message);
+                    console.error('   Error code:', error.code);
+                    console.error('   Error signal:', error.signal);
+                }
+                
                 try { fs.unlinkSync(scriptPath); } catch {}
                 
                 if (error && error.code !== null && error.code !== 0) {
-                    console.error('❌ CLI execution error:', error.message);
                     resolve({ success: false, error: error.message });
                 } else {
                     console.log('✅ Track command executed via CLI');
