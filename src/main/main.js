@@ -1310,19 +1310,27 @@ ipcMain.handle('execute-goto-bar', async (event, barNumber) => {
                     return;
                 }
                 
-                // Step 1: Get tempo and time signature from REAPER via Web API
+                // Step 1: Get current tempo from REAPER via Web API
                 const port = 8080;
-                http.get({ host: '127.0.0.1', port, path: '/_/TRANSPORT' }, (res) => {
-                    let data = '';
-                    res.on('data', chunk => data += chunk);
-                    res.on('end', () => {
+                
+                // First, get the current tempo using TEMPO endpoint
+                http.get({ host: '127.0.0.1', port, path: '/_/TEMPO' }, (tempoRes) => {
+                    let tempoData = '';
+                    tempoRes.on('data', chunk => tempoData += chunk);
+                    tempoRes.on('end', () => {
                         try {
-                            // TRANSPORT format: TRANSPORT [state] [pos_sec] [repeat] [beat_pos] [length]
-                            // We can't easily get tempo from Web API, so we'll use a default
-                            // TODO: Make tempo configurable in settings
-                            const tempo = 90.0; // Default tempo assumption (set to match your project)
+                            // TEMPO returns: TEMPO [bpm]
+                            // Example: "TEMPO 90.0"
+                            const tempoMatch = tempoData.match(/TEMPO\s+([\d.]+)/);
+                            let tempo = 120.0; // Fallback default
                             
-                            console.log('📡 Using default tempo:', tempo, 'BPM (assuming 4/4 time)');
+                            if (tempoMatch && tempoMatch[1]) {
+                                tempo = parseFloat(tempoMatch[1]);
+                                console.log('📡 Got project tempo from REAPER:', tempo, 'BPM');
+                            } else {
+                                console.warn('⚠️  Could not parse tempo, using default:', tempo, 'BPM');
+                                console.warn('   Tempo data received:', tempoData);
+                            }
                             
                             // Calculate time for bar (assuming 4/4 time signature)
                             // Bar 1 = 0 seconds, Bar 2 = (4 beats / tempo) * 60, etc.
@@ -1331,7 +1339,7 @@ ipcMain.handle('execute-goto-bar', async (event, barNumber) => {
                             const barIndex = barNumber - 1; // Convert to 0-based
                             const timeInSeconds = barIndex * beatsPerBar * secondsPerBeat;
                             
-                            console.log('📡 Calculated time for bar', barNumber, ':', timeInSeconds, 'seconds');
+                            console.log('📡 Calculated time for bar', barNumber, ':', timeInSeconds, 'seconds', '@', tempo, 'BPM');
                             
                             // Step 2: Send OSC message to set playhead position
                             const dgram = require('dgram');
@@ -1368,9 +1376,36 @@ ipcMain.handle('execute-goto-bar', async (event, barNumber) => {
                             resolve({ success: false, error: parseErr.message });
                         }
                     });
-                }).on('error', (err) => {
-                    console.warn('❌ Web API failed, trying fallback:', err.message);
-                    tryCLI();
+                }).on('error', (tempoErr) => {
+                    console.warn('⚠️  Tempo API failed, using default 120 BPM:', tempoErr.message);
+                    // Fallback: use 120 BPM if we can't get tempo
+                    const tempo = 120.0;
+                    const beatsPerBar = 4;
+                    const secondsPerBeat = 60.0 / tempo;
+                    const barIndex = barNumber - 1;
+                    const timeInSeconds = barIndex * beatsPerBar * secondsPerBeat;
+                    
+                    console.log('📡 Calculated time for bar', barNumber, ':', timeInSeconds, 'seconds @ default', tempo, 'BPM');
+                    
+                    const dgram = require('dgram');
+                    const oscSocket = dgram.createSocket('udp4');
+                    const address = '/time';
+                    let oscData = Buffer.from(address + '\x00', 'utf-8');
+                    while (oscData.length % 4 !== 0) oscData = Buffer.concat([oscData, Buffer.from([0])]);
+                    let typeTag = Buffer.from(',f\x00\x00', 'utf-8');
+                    oscData = Buffer.concat([oscData, typeTag]);
+                    const floatBuf = Buffer.allocUnsafe(4);
+                    floatBuf.writeFloatBE(timeInSeconds, 0);
+                    oscData = Buffer.concat([oscData, floatBuf]);
+                    
+                    oscSocket.send(oscData, 8000, '127.0.0.1', (err) => {
+                        oscSocket.close();
+                        if (err) {
+                            resolve({ success: false, error: err.message });
+                        } else {
+                            resolve({ success: true });
+                        }
+                    });
                 });
             } catch (e) {
                 console.error('❌ Exception in tryWeb:', e.message);
