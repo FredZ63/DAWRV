@@ -69,6 +69,24 @@ class TTSConfigManager {
         content.innerHTML = `
             <h2 style="color: #fff; margin-top: 0; margin-bottom: 20px;">🎤 RHEA Voice Settings</h2>
             
+            <!-- Voice Feedback Toggle -->
+            <div style="margin-bottom: 25px; padding: 15px; background: rgba(76, 175, 80, 0.1); border: 1px solid rgba(76, 175, 80, 0.3); border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong style="color: #4CAF50;">🗣️ Voice Feedback</strong>
+                        <p style="color: #aaa; margin: 5px 0 0 0; font-size: 13px;">
+                            Enable RHEA to speak confirmations for all commands
+                        </p>
+                    </div>
+                    <label style="position: relative; display: inline-block; width: 60px; height: 34px;">
+                        <input type="checkbox" id="voice-feedback-toggle" style="opacity: 0; width: 0; height: 0;">
+                        <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px;">
+                            <span style="position: absolute; content: ''; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%;"></span>
+                        </span>
+                    </label>
+                </div>
+            </div>
+            
             <div style="margin-bottom: 20px; padding: 15px; background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3); border-radius: 8px;">
                 <strong style="color: #667eea;">💡 Upgrade to High-Quality Voices</strong>
                 <p style="color: #aaa; margin: 10px 0 0 0; font-size: 13px;">
@@ -169,6 +187,22 @@ class TTSConfigManager {
             this.loadElevenLabsVoices();
         };
         
+        // Voice feedback toggle event
+        const toggle = document.getElementById('voice-feedback-toggle');
+        toggle.onchange = () => this.toggleVoiceFeedback(toggle.checked);
+        
+        // Add CSS for toggle switch animation
+        const style = document.createElement('style');
+        style.textContent = `
+            #voice-feedback-toggle:checked + span {
+                background-color: #4CAF50 !important;
+            }
+            #voice-feedback-toggle:checked + span span {
+                transform: translateX(26px);
+            }
+        `;
+        document.head.appendChild(style);
+        
         // Close on background click
         modal.onclick = (e) => {
             if (e.target === modal) this.closeModal();
@@ -198,6 +232,10 @@ class TTSConfigManager {
     
     populateForm() {
         const config = this.rhea.loadTTSConfig();
+        
+        // Load voice feedback setting (default: true - RHEA speaks)
+        const voiceFeedbackEnabled = localStorage.getItem('voiceFeedbackEnabled') !== 'false';
+        document.getElementById('voice-feedback-toggle').checked = voiceFeedbackEnabled;
         
         document.getElementById('tts-provider').value = config.provider || 'browser';
         document.getElementById('elevenlabs-api-key').value = config.elevenlabs?.apiKey || '';
@@ -258,8 +296,8 @@ class TTSConfigManager {
     
     async loadElevenLabsVoices() {
         const apiKey = document.getElementById('elevenlabs-api-key').value;
-        if (!apiKey) {
-            this.showStatus('❌ Please enter API key first', 'error');
+        if (!apiKey || apiKey.trim() === '') {
+            this.showStatus('❌ Please enter a valid API key first', 'error');
             return;
         }
         
@@ -269,6 +307,12 @@ class TTSConfigManager {
             if (typeof TTSProvider !== 'undefined') {
                 const tempProvider = new TTSProvider({ provider: 'elevenlabs', apiKey });
                 const voices = await tempProvider.getElevenLabsVoices();
+                
+                // Check if we got any voices back
+                if (!voices || voices.length === 0) {
+                    this.showStatus('❌ No voices returned. Check your API key.', 'error');
+                    return;
+                }
                 
                 const select = document.getElementById('elevenlabs-voice');
                 select.innerHTML = '<option value="">Select a voice...</option>';
@@ -283,8 +327,40 @@ class TTSConfigManager {
                 this.showStatus(`✅ Loaded ${voices.length} voices!`, 'success');
             }
         } catch (error) {
-            this.showStatus(`❌ Failed to load voices: ${error.message}`, 'error');
+            console.error('ElevenLabs voice loading error:', error);
+            
+            // Provide user-friendly error messages
+            let errorMsg = 'Failed to load voices';
+            if (error.message && error.message.includes('401')) {
+                errorMsg = 'Invalid API key. Please check your ElevenLabs API key.';
+            } else if (error.message && error.message.includes('403')) {
+                errorMsg = 'API key does not have permission. Check your ElevenLabs account.';
+            } else if (error.message && error.message.includes('429')) {
+                errorMsg = 'Rate limit exceeded. Please wait and try again.';
+            } else if (error.message) {
+                errorMsg = `Error: ${error.message}`;
+            }
+            
+            this.showStatus(`❌ ${errorMsg}`, 'error');
         }
+    }
+    
+    toggleVoiceFeedback(enabled) {
+        // Save setting to localStorage
+        localStorage.setItem('voiceFeedbackEnabled', enabled ? 'true' : 'false');
+        
+        // Update RHEA's voice feedback setting
+        if (this.rhea) {
+            this.rhea.voiceFeedbackEnabled = enabled;
+        }
+        
+        // Show confirmation
+        this.showStatus(
+            enabled ? '✅ Voice feedback enabled - RHEA will speak confirmations' : '🔇 Voice feedback disabled - Silent mode',
+            'success'
+        );
+        
+        console.log('🗣️ Voice feedback:', enabled ? 'ENABLED' : 'DISABLED');
     }
     
     showStatus(message, type) {

@@ -228,9 +228,64 @@ class TTSProvider {
      * Speak using Google Cloud TTS
      */
     async speakGoogle(text, options = {}) {
-        // Requires Google Cloud SDK or backend service
-        console.warn('Google Cloud TTS requires backend service');
-        return await this.speakBrowser(text, options);
+        try {
+            if (!this.config.apiKey) {
+                console.warn('Google Cloud TTS API key not configured, falling back to browser TTS');
+                return await this.speakBrowser(text, options);
+            }
+            
+            // Google Cloud Text-to-Speech API REST endpoint
+            const endpoint = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${this.config.apiKey}`;
+            
+            // Request payload
+            const payload = {
+                input: { text: text },
+                voice: {
+                    languageCode: options.languageCode || 'en-US',
+                    name: options.voiceName || 'en-US-Neural2-F', // Female neural voice (high quality)
+                    ssmlGender: options.gender || 'FEMALE'
+                },
+                audioConfig: {
+                    audioEncoding: 'MP3',
+                    pitch: options.pitch || 0,
+                    speakingRate: options.rate || 1.0
+                }
+            };
+            
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Google Cloud TTS API error: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (!data.audioContent) {
+                throw new Error('No audio content received from Google Cloud TTS');
+            }
+            
+            // Convert base64 audio to blob and play
+            const audioData = atob(data.audioContent);
+            const arrayBuffer = new ArrayBuffer(audioData.length);
+            const view = new Uint8Array(arrayBuffer);
+            for (let i = 0; i < audioData.length; i++) {
+                view[i] = audioData.charCodeAt(i);
+            }
+            const blob = new Blob([arrayBuffer], { type: 'audio/mp3' });
+            
+            await this.playAudioBlob(blob);
+            
+        } catch (error) {
+            console.error('Google Cloud TTS error:', error);
+            console.warn('Falling back to browser TTS');
+            return await this.speakBrowser(text, options);
+        }
     }
     
     /**
@@ -308,14 +363,21 @@ class TTSProvider {
             });
             
             if (!response.ok) {
+                // Don't log 401 errors (expected when no API key is configured)
+                if (response.status !== 401) {
+                    console.error(`Failed to fetch ElevenLabs voices: ${response.status}`);
+                }
                 throw new Error(`Failed to fetch voices: ${response.status}`);
             }
             
             const data = await response.json();
             return data.voices || [];
         } catch (error) {
-            console.error('Failed to get ElevenLabs voices:', error);
-            return [];
+            // Only log non-401 errors (401 is expected when API key is missing/invalid)
+            if (!error.message || !error.message.includes('401')) {
+                console.error('Failed to get ElevenLabs voices:', error);
+            }
+            throw error; // Re-throw so the UI can handle it gracefully
         }
     }
     

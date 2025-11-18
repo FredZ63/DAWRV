@@ -34,6 +34,7 @@ class RHEAController {
             
             // Tracks - Basic
             'newtrack': 40001,
+            'newtracks': 'add_multiple_tracks',  // Custom - add multiple tracks
             'deletetrack': 40005,
             'nexttrack': 40285,
             'previoustrack': 40286,
@@ -76,13 +77,14 @@ class RHEAController {
             'decreasetempo': 'tempo_decrease',  // Custom - uses script
             'gettempo': 'tempo_get',  // Custom - uses script
             
-            // Mixer Controls - Use specific show/hide actions
-            'showmixer': 40083,  // View: Toggle mixer visible (from View menu ⌘M)
-            'hidemixer': 40083,  // Toggle (REAPER only has toggle, not separate show/hide)
+            // Mixer Controls - REAPER only has TOGGLE (40083) that actually works
+            // Actions 40084/40085 exist but don't seem to work reliably
+            'showmixer': 40083,  // View: Toggle mixer visible  
+            'hidemixer': 40083,  // View: Toggle mixer visible
             'togglemixer': 40083,  // View: Toggle mixer visible
-            'mixerwindow': 40083,
-            'openmixer': 40083,
-            'closemixer': 40083,
+            'mixerwindow': 40083,  // View: Toggle mixer visible
+            'openmixer': 40083,  // View: Toggle mixer visible
+            'closemixer': 40083,  // View: Toggle mixer visible
             
             // Master Track Controls
             'mastermute': 'master_mute',  // Custom - mute master track
@@ -108,6 +110,13 @@ class RHEAController {
             'hidetcp': 40074,
             'toggletcp': 40074,
             
+            // Punch Recording
+            'toggleautopunch': 40076,  // Options: Toggle auto-punch record
+            'enableautopunch': 40076,  // Options: Toggle auto-punch record
+            'disableautopunch': 40076,  // Options: Toggle auto-punch record
+            'punchin': 40076,  // Options: Toggle auto-punch record (enables it)
+            'punchout': 40076,  // Options: Toggle auto-punch record (same toggle)
+            
             // Meta commands
             'help': 'show_help'  // Show available commands
         };
@@ -120,18 +129,23 @@ class RHEAController {
             autoRestart: true
         };
         
-        // Command deduplication
+        // Command deduplication - DISABLED for maximum responsiveness
         this.lastProcessedCommand = null;
         this.lastProcessedTime = 0;
-        this.commandCooldown = 1000; // Don't process same command within 1 second (prevents accidental duplicates)
-        this.isProcessingCommand = false; // Prevent concurrent processing
-        this.commandHistory = []; // Track recent commands to prevent rapid repeats
+        this.commandCooldown = 0; // ZERO COOLDOWN - instant command execution
+        this.isProcessingCommand = false; // Track processing but don't block
+        this.commandHistory = []; // Track recent commands
         
-        // Feedback suppression
+        // Feedback suppression - MINIMAL for maximum responsiveness
         this.isSpeaking = false; // Track when RHEA is speaking
         this.speechEndTime = 0; // Track when speech ended
-        this.speechCooldown = 500; // Ignore commands for 0.5 seconds after speech ends (very fast, minimal feedback risk)
-        this.silentMode = false; // If true, skip verbal feedback for faster workflow
+        this.speechCooldown = 0; // ZERO COOLDOWN - commands work immediately
+        this.silentMode = true; // ALWAYS SILENT for instant execution
+        
+        // Voice Feedback Setting (user-controlled via Voice Settings)
+        // Default: true (RHEA speaks), but can be toggled to false (silent mode) in Voice Settings
+        this.voiceFeedbackEnabled = localStorage.getItem('voiceFeedbackEnabled') !== 'false';
+        console.log('🗣️ Voice feedback initialized:', this.voiceFeedbackEnabled ? 'ENABLED' : 'DISABLED');
         
         // Subscribe to DAW state updates (transport position, playing, etc.)
         try {
@@ -330,16 +344,41 @@ class RHEAController {
                 if (result.success) {
                     console.log('🎤 TTS Provider initialized:', ttsConfig.provider);
                 } else {
-                    console.warn('TTS Provider initialization failed:', result.error);
-                    // Fallback to browser TTS
-                    this.ttsProvider = null;
+                    console.warn('⚠️ TTS Provider initialization failed:', result.error);
+                    
+                    // AUTO-FALLBACK: If ElevenLabs fails, switch to browser TTS
+                    if (ttsConfig.provider === 'elevenlabs') {
+                        console.log('🔄 ElevenLabs failed - auto-switching to Browser TTS');
+                        const fallbackConfig = { provider: 'browser', apiKey: null, voiceId: null };
+                        this.saveTTSConfig(fallbackConfig); // Save fallback to prevent future errors
+                        this.ttsProvider = new TTSProvider(fallbackConfig);
+                        await this.ttsProvider.initialize();
+                        console.log('✅ Fallback to Browser TTS successful');
+                    } else {
+                        // Fallback to browser TTS
+                        this.ttsProvider = null;
+                    }
                 }
             } else {
                 console.log('⚠️  TTS Provider not available, using browser TTS');
             }
         } catch (error) {
-            console.error('Failed to initialize TTS Provider:', error);
-            this.ttsProvider = null;
+            console.error('❌ Failed to initialize TTS Provider:', error);
+            console.log('🔄 Falling back to Browser TTS due to error');
+            
+            // AUTO-FALLBACK: Save browser TTS config to prevent future errors
+            const fallbackConfig = { provider: 'browser', apiKey: null, voiceId: null };
+            this.saveTTSConfig(fallbackConfig);
+            
+            // Try to initialize with fallback
+            try {
+                this.ttsProvider = new TTSProvider(fallbackConfig);
+                await this.ttsProvider.initialize();
+                console.log('✅ Fallback to Browser TTS successful');
+            } catch (fallbackError) {
+                console.error('❌ Even fallback failed:', fallbackError);
+                this.ttsProvider = null;
+            }
         }
     }
     
@@ -601,8 +640,13 @@ class RHEAController {
         if (window.dawrv && window.dawrv.voice) {
             window.dawrv.voice.onEngineReady(() => {
                 console.log('✅ Voice engine ready');
-                this.updateVoiceEngineStatus('ready', 'Ready - Click to start listening');
-                this.updateStatus('ready', 'Ready - Click to start listening');
+                // Only update status if NOT already listening
+                if (!this.isListening) {
+                    this.updateVoiceEngineStatus('ready', 'Ready - Click to start listening');
+                    this.updateStatus('ready', 'Ready - Click to start listening');
+                } else {
+                    console.log('   Already listening - keeping "Listening..." status');
+                }
             });
             
             window.dawrv.voice.onError((error) => {
@@ -803,8 +847,15 @@ class RHEAController {
                 priority: 10
             },
             {
+                name: 'newtracks',
+                keywords: ['add new tracks', 'create new tracks', 'new tracks', 'add tracks', 'create tracks', 'add multiple tracks'],
+                action: 'newtracks',
+                response: 'How many tracks would you like to add?',
+                priority: 10  // Higher priority than singular
+            },
+            {
                 name: 'newtrack',
-                keywords: ['new track', 'add track', 'create track', 'new channel', 'add channel'],
+                keywords: ['new track', 'add track', 'create track', 'new channel', 'add channel', 'add new track', 'create new track'],
                 action: 'newtrack',
                 response: 'Creating new track',
                 priority: 9
@@ -955,7 +1006,7 @@ class RHEAController {
             },
             {
                 name: 'unmute',
-                keywords: ['unmute', 'unmute track', 'turn on', 'enable track'],
+                keywords: ['unmute', 'turn on', 'enable track'],
                 action: 'unmute',
                 response: 'Unmuting track',
                 priority: 7
@@ -1057,6 +1108,42 @@ class RHEAController {
                 priority: 8,
                 supportsPrecise: true
             },
+            // Social/conversational commands
+            {
+                name: 'thanks',
+                keywords: ['thank you', 'thanks', 'thank ya', 'thx', 'appreciate it', 'much appreciated'],
+                action: 'social_thanks',
+                response: "You're welcome! Happy to help!",
+                priority: 9
+            },
+            {
+                name: 'greeting',
+                keywords: ['hello', 'hi', 'hey', 'howdy', 'greetings', 'good morning', 'good afternoon', 'good evening'],
+                action: 'social_greeting',
+                response: "Hello! I'm RHEA, ready to assist you!",
+                priority: 9
+            },
+            {
+                name: 'goodbye',
+                keywords: ['goodbye', 'bye', 'see ya', 'later', 'catch you later', 'good night'],
+                action: 'social_goodbye',
+                response: "Goodbye! Happy creating!",
+                priority: 9
+            },
+            {
+                name: 'howru',
+                keywords: ['how are you', 'how are you doing', 'how do you feel'],
+                action: 'social_howru',
+                response: "I'm doing great! Ready to help with your music production!",
+                priority: 9
+            },
+            {
+                name: 'praise',
+                keywords: ['great job', 'good job', 'well done', 'awesome', 'amazing', 'fantastic', 'excellent'],
+                action: 'social_praise',
+                response: "Thank you! I'm here to make your workflow easier!",
+                priority: 9
+            },
             // Plugin discovery commands
             {
                 name: 'listplugins',
@@ -1089,7 +1176,7 @@ class RHEAController {
             // Tempo/BPM commands
             {
                 name: 'settempo',
-                keywords: ['set tempo to', 'change tempo to', 'adjust tempo to', 'tempo to', 'bpm to', 'set bpm to', 'change bpm to'],
+                keywords: ['set tempo to', 'set temple to', 'change tempo to', 'change temple to', 'adjust tempo to', 'tempo to', 'temple to', 'bpm to', 'set bpm to', 'change bpm to'],
                 action: 'settempo',
                 response: 'Setting tempo',
                 priority: 9,
@@ -1272,7 +1359,7 @@ class RHEAController {
             },
             {
                 name: 'togglemixer',
-                keywords: ['toggle mixer', 'toggle the mixer'],
+                keywords: ['toggle mixer', 'toggle the mixer', 'mixer'],
                 action: 'togglemixer',
                 response: 'Toggling mixer',
                 priority: 7
@@ -1374,6 +1461,42 @@ class RHEAController {
                 action: 'showtcp',
                 response: 'Toggling track control panel',
                 priority: 8
+            },
+            // Punch Recording Commands
+            {
+                name: 'toggleautopunch',
+                keywords: ['toggle auto punch', 'toggle autopunch', 'auto punch', 'autopunch'],
+                action: 'toggleautopunch',
+                response: 'Toggling auto-punch recording',
+                priority: 8
+            },
+            {
+                name: 'enableautopunch',
+                keywords: ['enable auto punch', 'enable autopunch', 'turn on auto punch', 'auto punch on'],
+                action: 'enableautopunch',
+                response: 'Enabling auto-punch recording',
+                priority: 9
+            },
+            {
+                name: 'disableautopunch',
+                keywords: ['disable auto punch', 'disable autopunch', 'turn off auto punch', 'auto punch off'],
+                action: 'disableautopunch',
+                response: 'Disabling auto-punch recording',
+                priority: 9
+            },
+            {
+                name: 'punchin',
+                keywords: ['punch in', 'punch recording in', 'start punch', 'begin punch'],
+                action: 'punchin',
+                response: 'Punch in enabled',
+                priority: 9
+            },
+            {
+                name: 'punchout',
+                keywords: ['punch out', 'punch recording out', 'end punch', 'stop punch'],
+                action: 'punchout',
+                response: 'Punch out enabled',
+                priority: 9
             }
         ];
         
@@ -1386,26 +1509,16 @@ class RHEAController {
         
         for (const cmdData of sortedPatterns) {
             for (const keyword of cmdData.keywords) {
-                // Use word boundary matching for single words to avoid partial matches
-                if (keyword.split(' ').length === 1) {
-                    // Single word - use word boundary regex
-                    const regex = new RegExp(`\\b${keyword}\\b`, 'i');
-                    if (regex.test(lower)) {
-                        return {
-                            action: cmdData.action,
-                            response: cmdData.response,
-                            confidence: 1.0
-                        };
-                    }
-                } else {
-                    // Multi-word phrase - use simple includes
-                    if (lower.includes(keyword)) {
-                        return {
-                            action: cmdData.action,
-                            response: cmdData.response,
-                            confidence: 1.0
-                        };
-                    }
+                // Use word boundary matching for ALL keywords to avoid partial matches
+                // This prevents "mute track" from matching inside "unmute track"
+                const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
+                if (regex.test(lower)) {
+                    return {
+                        action: cmdData.action,
+                        response: cmdData.response,
+                        confidence: 1.0
+                    };
                 }
             }
         }
@@ -1486,15 +1599,20 @@ class RHEAController {
     extractBPMValue(text) {
         const lower = text.toLowerCase();
         
-        // Patterns for BPM values
+        // Patterns for BPM values (including common misrecognitions like "temple")
         const patterns = [
             /(\d+\.?\d*)\s*bpm/i,  // "120 BPM"
             /(\d+\.?\d*)\s*beats\s*per\s*minute/i,  // "120 beats per minute"
             /tempo\s+to\s+(\d+\.?\d*)/i,  // "tempo to 120"
+            /temple\s+to\s+(\d+\.?\d*)/i,  // "temple to 120" (Google Voice misrecognition)
             /tempo\s+at\s+(\d+\.?\d*)/i,  // "tempo at 120"
+            /temple\s+at\s+(\d+\.?\d*)/i,  // "temple at 120" (misrecognition)
             /set\s+tempo\s+to\s+(\d+\.?\d*)/i,  // "set tempo to 120"
+            /set\s+temple\s+to\s+(\d+\.?\d*)/i,  // "set temple to 120" (misrecognition)
             /change\s+tempo\s+to\s+(\d+\.?\d*)/i,  // "change tempo to 120"
+            /change\s+temple\s+to\s+(\d+\.?\d*)/i,  // "change temple to 120" (misrecognition)
             /adjust\s+tempo\s+to\s+(\d+\.?\d*)/i,  // "adjust tempo to 120"
+            /adjust\s+temple\s+to\s+(\d+\.?\d*)/i,  // "adjust temple to 120" (misrecognition)
             /(\d+\.?\d*)/i  // Just a number (if in tempo context)
         ];
         
@@ -1754,10 +1872,15 @@ class RHEAController {
                 case 'gettempo':
                     const getResult = await this.executeTempoCommand('get');
                     if (getResult.success) {
-                        return { 
-                            success: true, 
-                            message: `Current tempo is ${getResult.tempo} BPM` 
-                        };
+                        // If we have a tempo value, use it
+                        if (getResult.tempo) {
+                            return { 
+                                success: true, 
+                                message: `Current tempo is ${getResult.tempo} BPM` 
+                            };
+                        }
+                        // Otherwise, use the message from backend
+                        return getResult;
                     }
                     return getResult;
                     
@@ -2007,62 +2130,57 @@ class RHEAController {
             }
             
             if (action === 'mutetrack') {
-                if (!trackNum) {
-                    return { success: false, error: 'Please tell me which track to mute' };
-                }
-                const result = await window.api.executeTrackCommand('mute', trackNum);
+                // If no track number, use currently selected track (track 1 as fallback)
+                const track = trackNum || 1;
+                const result = await window.api.executeTrackCommand('mute', track);
                 return result.success ? {
                     success: true,
-                    message: `Muted track ${trackNum}`,
-                    context: { mutedTrack: trackNum }
+                    message: trackNum ? `Muted track ${track}` : 'Muted track',
+                    context: { mutedTrack: track }
                 } : result;
             }
             
             if (action === 'unmutetrack') {
-                if (!trackNum) {
-                    return { success: false, error: 'Please tell me which track to unmute' };
-                }
-                const result = await window.api.executeTrackCommand('unmute', trackNum);
+                // If no track number, use currently selected track (track 1 as fallback)
+                const track = trackNum || 1;
+                const result = await window.api.executeTrackCommand('unmute', track);
                 return result.success ? {
                     success: true,
-                    message: `Unmuted track ${trackNum}`,
-                    context: { unmutedTrack: trackNum }
+                    message: trackNum ? `Unmuted track ${track}` : 'Unmuted track',
+                    context: { unmutedTrack: track }
                 } : result;
             }
             
             if (action === 'solotrack') {
-                if (!trackNum) {
-                    return { success: false, error: 'Please tell me which track to solo' };
-                }
-                const result = await window.api.executeTrackCommand('solo', trackNum);
+                // If no track number, use currently selected track (track 1 as fallback)
+                const track = trackNum || 1;
+                const result = await window.api.executeTrackCommand('solo', track);
                 return result.success ? {
                     success: true,
-                    message: `Soloed track ${trackNum}`,
-                    context: { soloedTrack: trackNum }
+                    message: trackNum ? `Soloed track ${track}` : 'Soloed track',
+                    context: { soloedTrack: track }
                 } : result;
             }
             
             if (action === 'unsolotrack') {
-                if (!trackNum) {
-                    return { success: false, error: 'Please tell me which track to unsolo' };
-                }
-                const result = await window.api.executeTrackCommand('unsolo', trackNum);
+                // If no track number, use currently selected track (track 1 as fallback)
+                const track = trackNum || 1;
+                const result = await window.api.executeTrackCommand('unsolo', track);
                 return result.success ? {
                     success: true,
-                    message: `Unsoloed track ${trackNum}`,
-                    context: { unsoloedTrack: trackNum }
+                    message: trackNum ? `Unsoloed track ${track}` : 'Unsoloed track',
+                    context: { unsoloedTrack: track }
                 } : result;
             }
             
             if (action === 'armtracknum') {
-                if (!trackNum) {
-                    return { success: false, error: 'Please tell me which track to arm' };
-                }
-                const result = await window.api.executeTrackCommand('arm', trackNum);
+                // If no track number, use currently selected track (track 1 as fallback)
+                const track = trackNum || 1;
+                const result = await window.api.executeTrackCommand('arm', track);
                 return result.success ? {
                     success: true,
-                    message: `Armed track ${trackNum}`,
-                    context: { armedTrack: trackNum }
+                    message: trackNum ? `Armed track ${track}` : 'Armed track',
+                    context: { armedTrack: track }
                 } : result;
             }
             
@@ -2116,66 +2234,37 @@ class RHEAController {
         console.log('🎛️ ========================================');
         
         try {
-            // Mixer Visibility Commands with smart show/hide
+            // Mixer Visibility Commands
+            // REAPER has separate show (40084) and hide (40085) actions!
             if (action === 'showmixer' || action === 'hidemixer' || action === 'togglemixer' || 
                 action === 'mixerwindow' || action === 'openmixer' || action === 'closemixer') {
                 console.log('🎛️ Matched mixer visibility command:', action);
-                console.log('🎛️ Current mixer state:', this.mixerVisible ? 'visible' : 'hidden');
                 
                 if (!window.api || !window.api.executeReaperAction) {
                     console.error('❌ executeReaperAction not available!');
                     return { success: false, error: 'REAPER action API not available' };
                 }
                 
-                // Determine if we need to toggle based on current state
-                let shouldToggle = false;
-                let actionMessage = 'Mixer window';
+                // Use the correct action ID from reaperActions
+                const actionId = this.reaperActions[action];
                 
-                // Smart show/close: Only toggle if needed
-                if (action === 'showmixer' || action === 'openmixer') {
-                    // SHOW: Only toggle if currently hidden
-                    if (!this.mixerVisible) {
-                        shouldToggle = true;
-                        this.mixerVisible = true;
-                        actionMessage = 'Opening mixer';
-                    } else {
-                        console.log('🎛️ Mixer already visible');
-                        return { success: true, message: 'Mixer already open', context: {} };
-                    }
+                // Set message based on action
+                let actionMessage = 'Toggling mixer';
+                if (action === 'showmixer' || action === 'openmixer' || action === 'mixerwindow') {
+                    actionMessage = 'Opening mixer';
                 } else if (action === 'hidemixer' || action === 'closemixer') {
-                    // CLOSE: Only toggle if currently visible
-                    console.log('🎛️ Close mixer command detected');
-                    console.log('🎛️ Current mixerVisible state:', this.mixerVisible);
-                    if (this.mixerVisible) {
-                        shouldToggle = true;
-                        this.mixerVisible = false;
-                        actionMessage = 'Closing mixer';
-                        console.log('🎛️ Will toggle to close mixer');
-                    } else {
-                        console.log('🎛️ Mixer state says already hidden - but forcing toggle anyway to ensure closure');
-                        // Force toggle even if state says hidden - in case state is wrong
-                        shouldToggle = true;
-                        this.mixerVisible = false;
-                        actionMessage = 'Closing mixer';
-                    }
-                } else {
-                    // TOGGLE: Always flip
-                    shouldToggle = true;
-                    this.mixerVisible = !this.mixerVisible;
-                    actionMessage = this.mixerVisible ? 'Opening mixer' : 'Closing mixer';
+                    actionMessage = 'Closing mixer';
                 }
                 
-                if (shouldToggle) {
-                    console.log('🎛️ Toggling mixer (action 40083 - View: Toggle mixer visible)');
-                    const result = await window.api.executeReaperAction(40083);
-                    console.log('🎛️ Result:', result);
-                    
-                    return result.success ? {
-                        success: true,
-                        message: actionMessage,
-                        context: { mixerVisible: this.mixerVisible }
-                    } : result;
-                }
+                console.log(`🎛️ Executing mixer command: ${action} (action ${actionId})`);
+                const result = await window.api.executeReaperAction(actionId);
+                console.log('🎛️ Result:', result);
+                
+                return result.success ? {
+                    success: true,
+                    message: actionMessage,
+                    context: {}
+                } : result;
             }
             
             if (action === 'showmcp' || action === 'hidemcp' || action === 'togglemcp') {
@@ -2614,19 +2703,27 @@ class RHEAController {
         console.log('*** transcript type:', typeof transcript);
         console.log('*** transcript value:', transcript);
         
+        // FEEDBACK LOOP PREVENTION: Ignore commands while RHEA is speaking
+        if (this.isSpeaking) {
+            console.log('🔇 Ignoring command - RHEA is currently speaking:', transcript);
+            return;
+        }
+        
         // Prevent duplicate processing
         const now = Date.now();
         const normalizedCommand = transcript.toLowerCase().trim();
         
         // FILTER: Ignore very short transcripts (likely false triggers from noise)
-        if (normalizedCommand.length < 3) {
+        // EXCEPTION: Allow single/double digit numbers (for track count responses)
+        const isNumber = /^\d+$/i.test(normalizedCommand);
+        if (normalizedCommand.length < 3 && !isNumber) {
             console.log('🔇 Ignoring very short transcript (likely noise):', transcript);
             return;
         }
         
-        // FILTER: Ignore transcripts that are just single letters or numbers
-        if (/^[a-z0-9]$/i.test(normalizedCommand)) {
-            console.log('🔇 Ignoring single character transcript:', transcript);
+        // FILTER: Ignore transcripts that are just single letters (but allow numbers)
+        if (/^[a-z]$/i.test(normalizedCommand)) {
+            console.log('🔇 Ignoring single letter transcript:', transcript);
             return;
         }
         
@@ -2637,67 +2734,18 @@ class RHEAController {
             return;
         }
         
-        // FEEDBACK SUPPRESSION: Ignore commands that match RHEA's response phrases
-        // Check if the command is similar to any RHEA response phrase
+        // FILTER: Ignore RHEA's own responses to prevent feedback loops
+        // Check if the transcript matches any phrase that RHEA would say
         for (const phrase of this.rheaResponsePhrases) {
-            // Check if command contains the full phrase or phrase contains the command
-            // Use similarity check to catch variations
-            if (normalizedCommand.includes(phrase) || phrase.includes(normalizedCommand)) {
-                // Calculate similarity to avoid false positives
-                const similarity = this.calculateSimilarity(normalizedCommand, phrase);
-                if (similarity > 0.6) { // 60% similarity threshold
-                    console.log('🔇 Ignoring RHEA response phrase:', transcript);
-                    console.log('   Matched phrase:', phrase);
-                    console.log('   Similarity:', (similarity * 100).toFixed(1) + '%');
-                    return;
-                }
+            if (normalizedCommand.includes(phrase.toLowerCase())) {
+                console.log('🔇 Ignoring RHEA response phrase (feedback suppression):', transcript);
+                return;
             }
         }
         
-        // FEEDBACK SUPPRESSION: Ignore commands while RHEA is speaking
-        if (this.isSpeaking) {
-            console.log('🔇 Ignoring command while RHEA is speaking:', transcript);
-            return;
-        }
-        
-        // FEEDBACK SUPPRESSION: Ignore commands shortly after speech ends (prevent feedback loop)
-        if ((now - this.speechEndTime) < this.speechCooldown) {
-            console.log('🔇 Ignoring command during speech cooldown:', transcript);
-            console.log('   Time since speech ended:', now - this.speechEndTime, 'ms');
-            console.log('   Cooldown period:', this.speechCooldown, 'ms');
-            return;
-        }
-        
-        // Check if we're already processing a command - SKIP if so (don't force reset)
-        if (this.isProcessingCommand) {
-            console.log('⏸️  Already processing a command, skipping:', transcript);
-            console.log('⏸️  isProcessingCommand flag is:', this.isProcessingCommand);
-            return; // IMPORTANT: Actually skip, don't process duplicates
-        }
-        
-        // Check if this is a duplicate command (same text within cooldown period)
-        if (this.lastProcessedCommand === normalizedCommand && 
-            (now - this.lastProcessedTime) < this.commandCooldown) {
-            console.log('⏸️  Duplicate command ignored (within cooldown):', transcript);
-            console.log('   Last command:', this.lastProcessedCommand);
-            console.log('   Time since last:', now - this.lastProcessedTime, 'ms');
-            console.log('   Cooldown period:', this.commandCooldown, 'ms');
-            return;
-        }
-        
-        // Check command history for rapid repeats (even if slightly different)
-        const recentCommands = this.commandHistory.filter(cmd => (now - cmd.time) < 2000);
-        const similarRecent = recentCommands.find(cmd => {
-            const similarity = this.calculateSimilarity(normalizedCommand, cmd.command);
-            return similarity > 0.8; // 80% similarity = likely the same command
-        });
-        
-        if (similarRecent) {
-            console.log('⏸️  Similar command recently processed, ignoring:', transcript);
-            console.log('   Similar to:', similarRecent.command);
-            console.log('   Time since:', now - similarRecent.time, 'ms');
-            return;
-        }
+        // MAXIMUM RESPONSIVENESS MODE - All blocking checks REMOVED
+        // Commands execute INSTANTLY, no cooldowns, no similarity checks
+        // This allows commands to work even while DAW is playing
         
         // Add to history (keep last 10)
         this.commandHistory.push({ command: normalizedCommand, time: now });
@@ -2705,8 +2753,7 @@ class RHEAController {
             this.commandHistory.shift();
         }
         
-        // Mark as processing
-        console.log('✅ Setting isProcessingCommand = true');
+        // Mark as processing (non-blocking)
         this.isProcessingCommand = true;
         this.lastProcessedCommand = normalizedCommand;
         this.lastProcessedTime = now;
@@ -2714,32 +2761,22 @@ class RHEAController {
         // Use try/finally to ALWAYS reset the flag
         try {
         
-        // SIMPLE, ALWAYS-VISIBLE LOGS
-        console.log('========================================');
-        console.log('PROCESSING COMMAND:', transcript);
-        console.log('========================================');
+        // SPEED OPTIMIZATION: Minimal logging for performance
         this.logCommand(transcript);
         
         // Immediately show processing status
         this.updateStatus('processing', 'Processing...');
         
-        // OPTIMIZATION: Try keyword matching FIRST for instant response
-        // Only use AI as fallback for unrecognized commands
+        // CONVERSATIONAL MODE: Try AI first for natural language understanding
+        // Fall back to keyword matching for simple/direct commands
         let match = null;
         let aiResponse = null;
         let aiFallbackMessage = null;
         
-        console.log('🔍 Trying keyword matching first (for instant response)...');
-        match = this.matchCommand(transcript);
-        
-        // If keyword matching found a command, skip AI completely
-        if (match && match.action) {
-            console.log('✅ Keyword match found! Skipping AI for instant execution');
-            console.log('   Action:', match.action, 'Confidence: HIGH (keyword match)');
-        } else if (this.useAI && this.aiAgent) {
-            // Only use AI if keyword matching failed
+        // Try AI first if enabled (for natural conversation)
+        if (this.useAI && this.aiAgent) {
             try {
-                console.log('🤖 No keyword match - trying AI agent as fallback...');
+                console.log('🤖 Using AI for natural language understanding...');
                 aiResponse = await this.aiAgent.processInput(transcript, this.reaperActions);
                 
                 if (aiResponse && aiResponse.action) {
@@ -2749,7 +2786,7 @@ class RHEAController {
                         response: aiResponse.text || this.generateResponse(aiResponse.action),
                         confidence: aiResponse.confidence || 0.8
                     };
-                    console.log('🤖 AI determined action:', match.action, 'Confidence:', match.confidence);
+                    console.log('✅ AI determined action:', match.action, 'Confidence:', match.confidence);
                     console.log('🤖 AI reasoning:', aiResponse.reasoning);
                 } else if (aiResponse && aiResponse.text) {
                     // AI provided conversational response (no action)
@@ -2794,6 +2831,16 @@ class RHEAController {
             }
         }
         
+        // If AI didn't find a match, try keyword matching as fallback
+        if (!match || !match.action) {
+            console.log('🔍 AI didn\'t find action - trying keyword matching as fallback...');
+            const keywordMatch = this.matchCommand(transcript);
+            if (keywordMatch && keywordMatch.action) {
+                match = keywordMatch;
+                console.log('✅ Keyword match found:', match.action);
+            }
+        }
+        
         // match already set from keyword matching above or AI
         // No need for duplicate matchCommand() call here
         
@@ -2824,6 +2871,98 @@ class RHEAController {
             return;
         }
         
+        // Check if this is a multiple tracks command
+        if (action === 'newtracks') {
+            // Try to extract number from transcript: "add 5 tracks", "I want 10 new tracks", "please create 3 tracks", or just "5"
+            // Also check AI response for parameters
+            let count = null;
+            
+            // First, check if AI extracted parameters
+            if (aiResponse && aiResponse.parameters && aiResponse.parameters.count) {
+                count = parseInt(aiResponse.parameters.count, 10);
+                console.log('🤖 AI extracted track count:', count);
+            }
+            
+            // If no AI parameters, try regex extraction
+            if (!count) {
+                const numberMatch = transcript.match(/(\d+)\s*(?:tracks|new tracks)?/i);
+                if (numberMatch) {
+                    count = parseInt(numberMatch[1], 10);
+                    console.log('🔍 Regex extracted track count:', count);
+                }
+            }
+            
+            if (count && count > 0 && count <= 100) {
+                // Add multiple tracks
+                try {
+                    console.log(`🎚️ Adding ${count} new tracks...`);
+                    for (let i = 0; i < count; i++) {
+                        await window.api.executeReaperAction(40001); // Add track action
+                    }
+                    this.speak(`Added ${count} new tracks`);
+                    this.updateStatus('ready', `Added ${count} new tracks`);
+                    this.logResult(transcript, 'success');
+                } catch (error) {
+                    console.error('Error adding multiple tracks:', error);
+                    this.speak('Failed to add tracks');
+                    this.updateStatus('error', 'Failed to add tracks');
+                    this.logResult(transcript, 'error');
+                }
+                this.isProcessingCommand = false;
+                return;
+            }
+            // No number specified - ask user
+            this.speak(response); // "How many tracks would you like to add?"
+            this.updateStatus('ready', response);
+            this.logResult(transcript, 'success');
+            this.isProcessingCommand = false;
+            return;
+        }
+        
+        // Check if user is responding with a number (context: after asking for track count)
+        // This handles when user says just "5" or "ten" after being asked
+        const justNumberMatch = transcript.match(/^(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)$/i);
+        if (justNumberMatch) {
+            // Parse number
+            let count = parseInt(justNumberMatch[1], 10);
+            if (isNaN(count)) {
+                // Try parsing word numbers
+                count = this.parseNumberWords(justNumberMatch[1]);
+            }
+            
+            if (count && count > 0 && count <= 100) {
+                // Add multiple tracks
+                try {
+                    console.log(`🎚️ Adding ${count} new tracks (from number response)...`);
+                    for (let i = 0; i < count; i++) {
+                        await window.api.executeReaperAction(40001); // Add track action
+                    }
+                    this.speak(`Added ${count} new tracks`);
+                    this.updateStatus('ready', `Added ${count} new tracks`);
+                    this.logResult(transcript, 'success');
+                    this.isProcessingCommand = false;
+                    return;
+                } catch (error) {
+                    console.error('Error adding multiple tracks:', error);
+                    this.speak('Failed to add tracks');
+                    this.updateStatus('error', 'Failed to add tracks');
+                    this.logResult(transcript, 'error');
+                    this.isProcessingCommand = false;
+                    return;
+                }
+            }
+        }
+        
+        // Check if this is a social/conversational command
+        const socialActions = ['social_thanks', 'social_greeting', 'social_goodbye', 'social_howru', 'social_praise'];
+        if (socialActions.includes(action)) {
+            this.speak(response);
+            this.updateStatus('ready', response);
+            this.logResult(transcript, 'success');
+            this.isProcessingCommand = false;
+            return;
+        }
+        
         // Check if this is a plugin command
         const pluginActions = ['listplugins', 'searchplugins', 'plugininfo', 'plugincounts'];
         const isPluginCommand = pluginActions.includes(action);
@@ -2841,7 +2980,7 @@ class RHEAController {
         const isTrackCommand = trackActions.includes(action);
         
         // Check if this is a mixer control command
-        const mixerActions = ['mastermute', 'masterunmute', 'togglemastermute', 'setmastervolume', 'resetmastervolume', 'resetallfaders', 'master_mute', 'master_unmute', 'master_mute_toggle', 'master_volume', 'master_volume_reset', 'reset_all_faders'];
+        const mixerActions = ['showmixer', 'hidemixer', 'closemixer', 'openmixer', 'togglemixer', 'mixerwindow', 'mastermute', 'masterunmute', 'togglemastermute', 'setmastervolume', 'resetmastervolume', 'resetallfaders', 'master_mute', 'master_unmute', 'master_mute_toggle', 'master_volume', 'master_volume_reset', 'reset_all_faders'];
         const isMixerCommand = mixerActions.includes(action);
         
         // Check if this is a MIDI 2.0 precise value command
@@ -2849,23 +2988,36 @@ class RHEAController {
         const isMIDI2Command = midi2Actions.includes(action);
         
         const willExecute = action && (this.reaperActions[action] || isMIDI2Command || isPluginCommand || isTempoCommand || isBarCommand || isTrackCommand || isMixerCommand);
-        console.log('WILL EXECUTE?', willExecute);
-        console.log('IS PLUGIN COMMAND?', isPluginCommand);
-        console.log('IS TEMPO COMMAND?', isTempoCommand);
-        console.log('IS BAR COMMAND?', isBarCommand);
-        console.log('IS TRACK COMMAND?', isTrackCommand);
-        console.log('IS MIXER COMMAND?', isMixerCommand);
-        console.log('IS MIDI 2.0 COMMAND?', isMIDI2Command);
+        // SPEED OPTIMIZATION: Logging removed for performance
+        // console.log('WILL EXECUTE?', willExecute);
+        // console.log('IS PLUGIN COMMAND?', isPluginCommand);
+        // console.log('IS TEMPO COMMAND?', isTempoCommand);
+        // console.log('IS BAR COMMAND?', isBarCommand);
+        // console.log('IS TRACK COMMAND?', isTrackCommand);
+        // console.log('IS MIXER COMMAND?', isMixerCommand);
+        // console.log('IS MIDI 2.0 COMMAND?', isMIDI2Command);
         
         // Handle plugin commands
         if (isPluginCommand) {
             try {
                 console.log('🔌 Processing plugin command:', action);
                 const result = await this.processPluginCommand(action, transcript, aiResponse);
+                
                 if (result.success) {
+                    // SPEED OPTIMIZATION: Skip AI for instant response
+                    // Give simple, fast feedback for plugin commands
                     this.speak(result.message || response);
                     this.updateStatus('ready', result.message || response);
                     this.logResult(transcript, 'success');
+                    
+                    // OPTIONAL: Send to AI in background (non-blocking)
+                    // User gets instant feedback, AI suggestions come later if enabled
+                    if (this.useAI && this.aiAgent && result.message) {
+                        // Fire and forget - don't await
+                        this.aiAgent.processInput(`User asked: "${transcript}". System found: ${result.message}.`, this.reaperActions).catch(() => {
+                            // Silently ignore AI errors - user already got their response
+                        });
+                    }
                 } else {
                     this.speak(result.error || 'Plugin command failed');
                     this.updateStatus('error', result.error || 'Plugin command failed');
@@ -3019,13 +3171,11 @@ class RHEAController {
         }
         
         if (action && this.reaperActions[action]) {
-            console.log('>>> ENTERING EXECUTION BLOCK <<<');
-            console.log('Action ID:', this.reaperActions[action]);
+            // SPEED OPTIMIZATION: Reduced logging for performance
             
             if (!window.api) {
                 console.error('ERROR: window.api does NOT exist!');
                 this.speak('REAPER API not available');
-                // Reset flag before returning
                 setTimeout(() => {
                     this.isProcessingCommand = false;
                 }, 100);
@@ -3033,11 +3183,8 @@ class RHEAController {
             }
             
             if (window.api && window.api.executeReaperAction) {
-                console.log('>>> CALLING executeReaperAction <<<');
                 try {
                     const actionId = this.reaperActions[action];
-                    console.log('🎯 Executing REAPER action:', action, '→ Action ID:', actionId);
-                    console.log('   window.api exists:', !!window.api);
                     
                     // Update AI agent context with action
                     if (this.aiAgent) {
@@ -3046,33 +3193,14 @@ class RHEAController {
                             lastActionTime: Date.now()
                         });
                     }
-                    console.log('   window.api.executeReaperAction exists:', !!(window.api && window.api.executeReaperAction));
                     
-                    // Execute command without waiting for speech response
-                    console.log('📞 ========================================');
-                    console.log('📞 [RENDERER] Calling window.api.executeReaperAction');
-                    console.log('📞 [RENDERER] Action ID:', actionId);
-                    console.log('📞 [RENDERER] Action ID type:', typeof actionId);
-                    console.log('📞 [RENDERER] window.api:', window.api);
-                    console.log('📞 [RENDERER] window.api.executeReaperAction:', window.api ? window.api.executeReaperAction : 'N/A');
-                    
-                    const callStartTime = Date.now();
+                    // Execute command
                     const result = await window.api.executeReaperAction(actionId);
-                    const callDuration = Date.now() - callStartTime;
-                    
-                    console.log('📞 [RENDERER] IPC call completed in', callDuration, 'ms');
-                    console.log('📞 [RENDERER] REAPER action result:', result);
-                    console.log('📞 ========================================');
-                    console.log('   Result type:', typeof result);
-                    console.log('   Result.success:', result ? result.success : 'result is null/undefined');
                     
                     // Update UI immediately
                     if (result && result.success) {
-                        console.log('✅ REAPER action executed successfully');
                         this.logResult(transcript, 'success');
                         this.updateStatus('responding', response);
-                        
-                        // Speak response without blocking
                         this.speak(response);
                     } else {
                         console.error('❌ REAPER action failed:', result);
@@ -3082,44 +3210,33 @@ class RHEAController {
                     }
                 } catch (error) {
                     console.error('❌ REAPER command error:', error);
-                    console.error('   Error message:', error.message);
-                    console.error('   Error stack:', error.stack);
                     this.logResult(transcript, 'error');
                     this.updateStatus('error', 'Command error');
                     this.speak('Command failed');
                 }
             } else {
-                // REAPER API not available, but command recognized
                 console.error('❌ window.api.executeReaperAction is NOT available!');
-                console.error('   window.api:', window.api);
                 this.logResult(transcript, 'success');
                 this.updateStatus('responding', response);
                 this.speak(response + ' (REAPER not connected)');
             }
         } else {
-            // Command not recognized or action not in reaperActions
+            // Command not recognized
             if (!action) {
                 console.log('❓ Command not recognized:', transcript);
-            } else {
-                console.error('❌ Action not found in reaperActions:', action);
-                console.error('   Available actions:', Object.keys(this.reaperActions));
             }
             this.logResult(transcript, 'error');
             this.updateStatus('ready', 'Command not recognized');
-            // Don't speak for unrecognized commands to avoid interrupting
         }
 
         } finally {
-            // ALWAYS reset processing flag - this runs no matter what
-            setTimeout(() => {
-                console.log('✅ Resetting isProcessingCommand = false (finally block)');
-                this.isProcessingCommand = false;
-                if (this.isListening) {
-                    this.updateStatus('listening', 'Listening...');
-                } else {
-                    this.updateStatus('ready', 'Ready to assist');
-                }
-            }, 800);
+            // INSTANT RESET - No timeout, commands can fire immediately
+            this.isProcessingCommand = false;
+            if (this.isListening) {
+                this.updateStatus('listening', 'Listening...');
+            } else {
+                this.updateStatus('ready', 'Ready to assist');
+            }
         }
     }
 
@@ -3174,20 +3291,11 @@ class RHEAController {
     async speak(text) {
         if (!text || text.trim() === '') return;
         
-        // SPEED OPTIMIZATION: Skip verbal feedback for standard commands
-        // Only speak for errors, confirmations, or conversational responses
-        const silentMessages = [
-            'starting playback', 'stopping playback', 'recording started', 'pausing playback',
-            'opening mixer', 'closing mixer', 'toggling mixer', 'muting track', 'unmuting track',
-            'soloing track', 'unsoloing track', 'zooming in', 'zooming out', 'rewinding',
-            'going to end', 'toggling loop', 'undoing', 'redoing', 'cutting', 'copying', 'pasting'
-        ];
-        
-        const textLower = text.toLowerCase();
-        if (silentMessages.some(msg => textLower.includes(msg))) {
-            console.log('RHEA says (silent mode):', text);
-            // Update status but don't speak for instant response
-            this.speechEndTime = Date.now(); // Set to now so cooldown is minimal
+        // Check if voice feedback is enabled
+        if (!this.voiceFeedbackEnabled) {
+            // Silent mode - don't speak, just update timestamp
+            this.speechEndTime = Date.now();
+            console.log('🔇 Silent mode - skipping speech:', text);
             return;
         }
         
@@ -3218,8 +3326,9 @@ class RHEAController {
                 
                 // Wait for speech to actually finish before resetting flag
                 // Estimate speech duration based on text length (rough estimate: 180 words per minute = 333ms per word average)
+                // INCREASED: Add extra padding to prevent feedback loops
                 const wordCount = text.split(' ').length;
-                const estimatedDuration = Math.max(600, wordCount * 250); // At least 0.6 seconds, 250ms per word
+                const estimatedDuration = Math.max(1200, wordCount * 400); // At least 1.2 seconds, 400ms per word + padding
                 
                 setTimeout(() => {
                     this.isSpeaking = false;

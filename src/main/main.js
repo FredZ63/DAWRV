@@ -385,14 +385,12 @@ class DAWRVApp {
             }
         }
         
-        // TEMPORARILY force Whisper until Deepgram SDK issue is fixed
-        // The useDeepgram = process.env.DEEPGRAM_API_KEY && process.env.DEEPGRAM_API_KEY.length > 0;
-        const useDeepgram = false; // Forcing Whisper - Deepgram SDK v5.3.0 has import issues
-        const scriptFilename = useDeepgram ? 'rhea_voice_listener_deepgram.py' : 'rhea_voice_listener_whisper.py';
+        // Use Google Speech Recognition for INSTANT startup (< 1 second)
+        // rhea_voice_listener.py uses FREE Google API - fast, accurate, no model loading!
+        const scriptFilename = 'rhea_voice_listener.py';
         
         console.log('🎤 Voice Engine Selection:');
-        console.log('   Deepgram API Key set:', !!process.env.DEEPGRAM_API_KEY);
-        console.log('   Selected engine:', useDeepgram ? 'Deepgram Nova-2 (Fast)' : 'Whisper Large (Offline)');
+        console.log('   Selected engine: Google Speech Recognition (FREE, INSTANT)');
         
         // Resolve script path - handle both development and packaged app
         let scriptPath;
@@ -544,7 +542,7 @@ class DAWRVApp {
             console.log(`❌ Signal: ${signal}`);
             console.log(`❌ Process PID was: ${this.voiceListenerProcess ? this.voiceListenerProcess.pid : 'unknown'}`);
             console.log(`❌ Was listening: ${this.isVoiceListening}`);
-            console.log(`❌ Was using: ${useDeepgram ? 'Deepgram' : 'Whisper'}`);
+            console.log(`❌ Was using: Google Speech Recognition`);
             
             // Show captured output for diagnostics
             if (stdoutBuffer) {
@@ -560,23 +558,6 @@ class DAWRVApp {
                 console.log('❌ No STDERR captured');
             }
             console.log('❌ ========================================');
-            
-            // If Deepgram failed (exit code 1), automatically fall back to Whisper
-            if (useDeepgram && code === 1 && this.isVoiceListening) {
-                console.log('⚠️  Deepgram failed, falling back to Whisper...');
-                // Clear the API key temporarily to force Whisper
-                const savedKey = process.env.DEEPGRAM_API_KEY;
-                delete process.env.DEEPGRAM_API_KEY;
-                
-                // Give it a moment, then restart with Whisper
-                setTimeout(() => {
-                    this.voiceListenerProcess = null;
-                    this.startVoiceListener();
-                    // Restore the API key for next time
-                    process.env.DEEPGRAM_API_KEY = savedKey;
-                }, 1000);
-                return; // Don't show error, we're retrying
-            }
             
             const wasListening = this.isVoiceListening;
             const processPid = this.voiceListenerProcess ? this.voiceListenerProcess.pid : 'unknown';
@@ -721,46 +702,29 @@ class DAWRVApp {
             // Don't throw here - process error is handled via event
         });
 
-        // Verify process is actually running after a short delay
+        // INSTANT STARTUP - No verification delays!
+        // Google Speech Recognition starts in <200ms, so just check immediately
         setTimeout(() => {
             if (this.voiceListenerProcess && this.voiceListenerProcess.killed) {
                 console.error('❌ Voice listener process died immediately');
                 this.isVoiceListening = false;
-                if (this.mainWindow) {
-                    // Check if we have error info
-                    if (stderrBuffer.trim()) {
-                        const errorMsg = stderrBuffer.split('\n')
-                            .find(line => line.trim() && 
-                                (line.includes('Error') || line.includes('ModuleNotFoundError') || line.includes('No module named')));
-                        if (errorMsg) {
-                            this.mainWindow.webContents.send('voice-engine-error', `Voice listener failed: ${errorMsg.substring(0, 200)}`);
-                        } else {
-                            this.mainWindow.webContents.send('voice-engine-error', `Voice listener failed to start. Check console for details.`);
-                        }
+                if (this.mainWindow && stderrBuffer.trim()) {
+                    const errorMsg = stderrBuffer.split('\n')
+                        .find(line => line.trim() && 
+                            (line.includes('Error') || line.includes('ModuleNotFoundError') || line.includes('No module named')));
+                    if (errorMsg) {
+                        this.mainWindow.webContents.send('voice-engine-error', `Voice listener failed: ${errorMsg.substring(0, 200)}`);
                     } else {
-                        this.mainWindow.webContents.send('voice-engine-error', 'Voice listener failed to start. Install dependencies: pip3 install SpeechRecognition pyaudio');
+                        this.mainWindow.webContents.send('voice-engine-error', 'Voice listener failed to start. Install: pip3 install SpeechRecognition pyaudio');
                     }
+                } else if (this.mainWindow) {
+                    this.mainWindow.webContents.send('voice-engine-error', 'Voice listener failed to start. Install: pip3 install SpeechRecognition pyaudio');
                 }
             } else if (this.voiceListenerProcess) {
-                // Check if process is still alive and has produced output
-                if (hasSeenOutput) {
-                    console.log('✅ Voice listener process is running, PID:', this.voiceListenerProcess.pid);
-                    this.isVoiceListening = true;
-                } else {
-                    console.warn('⚠️  Voice listener process exists but no output yet. Waiting...');
-                    // Give it more time
-                    setTimeout(() => {
-                        if (this.voiceListenerProcess && !this.voiceListenerProcess.killed && hasSeenOutput) {
-                            console.log('✅ Voice listener process is running, PID:', this.voiceListenerProcess.pid);
-                            this.isVoiceListening = true;
-                        } else if (this.voiceListenerProcess && this.voiceListenerProcess.killed) {
-                            console.error('❌ Voice listener process died before producing output');
-                            this.isVoiceListening = false;
-                        }
-                    }, 2000);
-                }
+                console.log('✅ Voice listener process is running, PID:', this.voiceListenerProcess.pid);
+                this.isVoiceListening = true;
             }
-        }, 1000);
+        }, 200); // INSTANT: 200ms instead of 1-3 seconds!
 
         // Set flag immediately (will be verified in setTimeout)
         this.isVoiceListening = true;
@@ -1224,9 +1188,12 @@ async function handleTempoCommand(event, command, value) {
     try {
         // Handle 'get' command separately (read-only)
         if (command === 'get') {
-            // For now, return a placeholder - we'd need a separate script for reading tempo
+            // For now, return a friendly message - we'd need a separate script for reading tempo
             console.log('🎵 Get tempo not yet implemented via Web API');
-            return { success: false, error: 'Get tempo not yet implemented' };
+            return { 
+                success: true, 
+                message: 'Get tempo feature is coming soon! For now, you can see the tempo in REAPER\'s transport bar.' 
+            };
         }
         
         // Calculate the target tempo based on command

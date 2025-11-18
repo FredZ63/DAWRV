@@ -1,0 +1,20 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Pro Tools purple wave/arch logo -->
+  <defs>
+    <linearGradient id="ptGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#9b59b6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6c3483;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Dark background -->
+  <rect x="4" y="4" width="56" height="56" rx="8" fill="#1a1a1a" stroke="#333" stroke-width="1.5"/>
+  
+  <!-- Purple wave/arch (signature Pro Tools shape) -->
+  <path d="M 15 48 Q 32 12, 49 48" fill="none" stroke="url(#ptGrad)" stroke-width="8" stroke-linecap="round"/>
+  <path d="M 18 42 Q 32 18, 46 42" fill="none" stroke="url(#ptGrad)" stroke-width="5" stroke-linecap="round" opacity="0.6"/>
+  
+  <!-- Glow effect -->
+  <path d="M 15 48 Q 32 12, 49 48" fill="none" stroke="#e1bee7" stroke-width="10" stroke-linecap="round" opacity="0.2"/>
+</svg>
+

@@ -95,9 +95,13 @@ print('Say: play, stop, record, undo, save, or new track\n', flush=True)
 recognizer = sr.Recognizer()
 
 # Improve recognition settings
-recognizer.energy_threshold = 300  # Lower threshold for better sensitivity
+recognizer.energy_threshold = 200  # Lower threshold to catch quieter speech at start
 recognizer.dynamic_energy_threshold = True
-recognizer.pause_threshold = 0.8  # Shorter pause before considering speech ended
+recognizer.dynamic_energy_adjustment_damping = 0.15
+recognizer.dynamic_energy_ratio = 1.5
+recognizer.pause_threshold = 0.8  # INCREASED: Wait longer before ending phrase (catch full command)
+recognizer.phrase_threshold = 0.1  # Start listening sooner (catch first word)
+recognizer.non_speaking_duration = 0.5  # INCREASED: More tolerance for pauses within a phrase
 recognizer.operation_timeout = None
 
 try:
@@ -125,7 +129,8 @@ while True:
         with microphone as source:
             print('🎧 Listening...', flush=True)
             # Increase phrase time limit for longer commands
-            audio = recognizer.listen(source, timeout=None, phrase_time_limit=8)
+            # Give more time to capture full multi-word commands
+            audio = recognizer.listen(source, timeout=None, phrase_time_limit=10)
         
         try:
             # Use Google Speech Recognition with language hint

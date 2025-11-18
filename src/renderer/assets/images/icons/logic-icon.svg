@@ -1,0 +1,24 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Logic Pro X metallic app icon with play button -->
+  <defs>
+    <linearGradient id="logicGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#e0e0e0;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#c0c0c0;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#909090;stop-opacity:1" />
+    </linearGradient>
+    <radialGradient id="logicShine">
+      <stop offset="0%" style="stop-color:white;stop-opacity:0.4" />
+      <stop offset="100%" style="stop-color:white;stop-opacity:0" />
+    </radialGradient>
+  </defs>
+  
+  <!-- Rounded square background (metallic) -->
+  <rect x="4" y="4" width="56" height="56" rx="12" fill="url(#logicGrad)" stroke="#666" stroke-width="1.5"/>
+  
+  <!-- Play button triangle (black) -->
+  <polygon points="26,20 26,44 46,32" fill="#2c3e50" stroke="#1a1a1a" stroke-width="1.5"/>
+  
+  <!-- Shine effect -->
+  <ellipse cx="20" cy="16" rx="16" ry="20" fill="url(#logicShine)"/>
+</svg>
+

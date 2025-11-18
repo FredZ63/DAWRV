@@ -1,0 +1,36 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Studio One 7 blue neon "S" icon -->
+  <defs>
+    <linearGradient id="s1Grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5dade2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#3498db;stop-opacity:1" />
+    </linearGradient>
+    <filter id="neonGlow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Dark background -->
+  <rect x="4" y="4" width="56" height="56" rx="8" fill="#1a1a1a" stroke="#333" stroke-width="1.5"/>
+  
+  <!-- Stylized "S" shape (neon blue) -->
+  <path d="M 42 20 Q 48 20, 48 26 Q 48 32, 32 32 Q 16 32, 16 38 Q 16 44, 22 44" 
+        fill="none" 
+        stroke="url(#s1Grad)" 
+        stroke-width="6" 
+        stroke-linecap="round" 
+        filter="url(#neonGlow)"/>
+  
+  <!-- Inner glow -->
+  <path d="M 42 20 Q 48 20, 48 26 Q 48 32, 32 32 Q 16 32, 16 38 Q 16 44, 22 44" 
+        fill="none" 
+        stroke="#85c1e9" 
+        stroke-width="3" 
+        stroke-linecap="round" 
+        opacity="0.8"/>
+</svg>
+
