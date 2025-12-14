@@ -2062,7 +2062,27 @@ async function handleMeasureCommand(event, command, measure, measureEnd) {
 
             // 1) Set ExtState via REAPER Web Interface
             const http = require('http');
-            const hosts = ['127.0.0.1', 'localhost'];
+            // REAPER web control can be bound to LAN IP (e.g. 192.168.x.x) instead of localhost.
+            // Try localhost + all local IPv4 addresses.
+            const os = require('os');
+            const ips = [];
+            try {
+                const nets = os.networkInterfaces();
+                for (const name of Object.keys(nets || {})) {
+                    for (const net of (nets[name] || [])) {
+                        if (net && net.family === 'IPv4' && !net.internal) {
+                            ips.push(net.address);
+                        }
+                    }
+                }
+            } catch (_) {}
+
+            const hosts = Array.from(new Set([
+                process.env.DAWRV_REAPER_WEB_HOST,
+                '127.0.0.1',
+                'localhost',
+                ...ips
+            ].filter(Boolean)));
             const setExtState = (host) => new Promise((resolve) => {
                 const pathStr = `/_/EXTSTATE/RHEA/target_bar/${encodeURIComponent(String(barNumber))}`;
                 const req = http.request({ hostname: host, port: 8080, path: pathStr, method: 'GET', timeout: 600 }, (res) => {
@@ -2091,7 +2111,7 @@ async function handleMeasureCommand(event, command, measure, measureEnd) {
                 if (extOk) break;
             }
             if (!extOk) {
-                return { success: false, error: 'REAPER Web Interface not reachable on port 8080 (cannot set ExtState)' };
+                return { success: false, error: `REAPER Web Interface not reachable on port 8080 (cannot set ExtState). Tried: ${hosts.join(', ')}` };
             }
 
             // 2) Trigger the script via REAPER Web Interface ACTION endpoint (reliable for ReaScript IDs)
