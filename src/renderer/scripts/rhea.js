@@ -4596,6 +4596,17 @@ class RHEAController {
         }
     }
 
+    /**
+     * True when we should assume mic isolation (headset) and allow barge-in.
+     * This prioritizes responsiveness and is only enabled when headset is detected/assumed.
+     */
+    isIsolatedMicMode() {
+        try {
+            if (localStorage.getItem('rhea_headset_assume_isolated') === 'true') return true;
+        } catch (_) {}
+        return !!this.isHeadsetInput;
+    }
+
     async processCommand(transcript, options = {}) {
         // CRITICAL: Log immediately when function is called
         console.log('*** processCommand CALLED ***', transcript);
@@ -4603,7 +4614,8 @@ class RHEAController {
         console.log('*** transcript value:', transcript);
         
         // FEEDBACK LOOP PREVENTION: Ignore commands while RHEA is speaking
-        if (this.isSpeaking) {
+        // In headset/isolation mode, allow "barge-in" so the experience feels instant/human.
+        if (this.isSpeaking && !this.isIsolatedMicMode()) {
             console.log('🔇 Ignoring command - RHEA is currently speaking:', transcript);
             return;
         }
@@ -5470,6 +5482,13 @@ class RHEAController {
      */
     pauseListening() {
         console.log('🔇 Pausing microphone (preventing feedback)');
+
+        // In headset/isolation mode, do not pause listening. This enables barge-in and
+        // avoids the "dead air" feeling when giving rapid commands.
+        if (this.isIsolatedMicMode()) {
+            console.log('🎧 Headset/isolation mode: keeping mic active (barge-in enabled)');
+            return;
+        }
         
         // Stop browser speech recognition
         if (this.recognition) {
@@ -5499,6 +5518,13 @@ class RHEAController {
      */
     resumeListening() {
         console.log('👂 Resuming microphone');
+
+        // In headset/isolation mode, we never paused mic; just clear speaking state ASAP.
+        if (this.isIsolatedMicMode()) {
+            this.isSpeaking = false;
+            this.speechEndTime = Date.now();
+            return;
+        }
         
         // Clear safety timeout
         if (this._speakingTimeout) {
