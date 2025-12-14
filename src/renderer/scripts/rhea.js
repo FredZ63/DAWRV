@@ -4534,6 +4534,26 @@ class RHEAController {
 
             const update = async () => {
                 try {
+                    // Optional manual override (useful when DAWRV doesn't request mic permission in the renderer,
+                    // so device labels stay blank even if Python ASR is using a headset mic).
+                    const assume = localStorage.getItem('rhea_headset_assume_isolated') === 'true';
+                    if (assume) {
+                        this.isHeadsetInput = true;
+                        this._lastAudioInputLabel = '(assumed headset)';
+                        return;
+                    }
+
+                    // If labels are hidden, briefly request audio permission then stop the track immediately.
+                    // This typically unlocks device labels for enumerateDevices() without taking over the mic.
+                    try {
+                        if (navigator?.mediaDevices?.getUserMedia) {
+                            const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+                            tmp.getTracks().forEach(t => t.stop());
+                        }
+                    } catch {
+                        // Ignore permission errors; labels may remain empty.
+                    }
+
                     const devices = await navigator.mediaDevices.enumerateDevices();
                     const inputs = (devices || []).filter(d => d && d.kind === 'audioinput');
                     const byLabel = (d) => String(d?.label || '');
