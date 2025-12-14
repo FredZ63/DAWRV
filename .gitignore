@@ -5,6 +5,25 @@ dmg_contents/
 *.dmg
 *.log
 .DS_Store
+.cursor/
+.vscode/
+.idea/
+
+# Editor/backup files
+*.bak
+*.bak*
+*.backup
+*.backup_*
+*.swp
+*.swo
+*.tmp
+*.orig
+*.htmlbak
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
 .deepgram-key
 .env
 voice-engine/vosk/models/*
