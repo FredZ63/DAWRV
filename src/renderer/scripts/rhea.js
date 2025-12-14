@@ -160,16 +160,23 @@ class RHEAController {
             autoRestart: true
         };
 
-        // Wake phrase gating to avoid reacting to music playback
-        // Note: ASR often mishears "Rhea" as "real"/"ria"/"reah". We accept a few safe
-        // variants *only* as an utterance prefix so wake gating still blocks playback noise.
+        // Wake phrase gating to avoid reacting to music playback.
+        // Note: ASR often mishears "Rhea" as "real"/"ria"/"reah"/"rear".
+        // We accept a few safe variants *only* as an utterance prefix so wake gating
+        // still blocks playback noise.
         this.wakePhrases = [
             'hey rhea',
             'rhea',
+
             // Common mis-hears (prefix-only)
             'hey real',
+            'real',
             'hey ria',
-            'hey reah'
+            'ria',
+            'hey reah',
+            'reah',
+            'hey rear',
+            'rear'
         ];
         // Wake gating UI settings
         // Modes:
@@ -4463,7 +4470,12 @@ class RHEAController {
             return { accept: false, transcript: '', skipWakeCheck: false };
         }
         if (!wakeCheck.stripped) {
-            // Wake phrase only, no command
+            // Wake phrase only (ASR sometimes emits wake phrase and the command as separate
+            // transcripts). Open a wake session window so the NEXT transcript can pass.
+            if (this.wakeSessionDurationMs > 0) {
+                this._wakeSessionUntil = now + (this.wakeSessionDurationMs || 6000);
+                console.log('✅ Wake phrase detected (session opened)', { untilMs: this._wakeSessionUntil });
+            }
             return { accept: false, transcript: '', skipWakeCheck: false };
         }
         // Start wake session window (if enabled)
