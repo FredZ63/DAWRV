@@ -2041,6 +2041,10 @@ async function handleTempoCommand(event, command, value) {
     }
 }
 
+// Cache: bar number -> exact start position in seconds (computed via /_/SET/POS + /_/TRANSPORT)
+// Speeds up repeated navigation and allows tighter bracketing for binary search.
+const __dawrvBarStartSecCache = new Map();
+
 // Define measure handler function
 async function handleMeasureCommand(event, command, measure, measureEnd) {
     console.log('📏 execute-measure-command handler called:', command, measure, measureEnd);
@@ -2138,16 +2142,39 @@ async function handleMeasureCommand(event, command, measure, measureEnd) {
             const currentBar = t0.bar;
             const currentSec = t0.posSec;
 
+            // Fast path: if we already computed this bar start time, use it directly.
+            if (__dawrvBarStartSecCache.has(targetBar)) {
+                const cached = __dawrvBarStartSecCache.get(targetBar);
+                await setPosSeconds(cached);
+                const tCached = await tryGetTransport(host);
+                if (tCached && tCached.bar === targetBar) {
+                    return { success: true, host, posSec: tCached.posSec, bar: tCached.bar, cached: true };
+                }
+                // Cache entry is stale (project changed) – drop it and fall back.
+                __dawrvBarStartSecCache.delete(targetBar);
+            }
+
             // Bracket the target in time
             let low = 0.0;
             let high = Math.max(1.0, currentSec);
 
+            // If we have neighbors in cache, use them to bracket tightly.
+            // Find nearest cached bars below/above target.
+            let belowBar = null;
+            let aboveBar = null;
+            for (const b of __dawrvBarStartSecCache.keys()) {
+                if (b < targetBar && (belowBar === null || b > belowBar)) belowBar = b;
+                if (b > targetBar && (aboveBar === null || b < aboveBar)) aboveBar = b;
+            }
+            if (belowBar !== null) low = __dawrvBarStartSecCache.get(belowBar);
+            if (aboveBar !== null) high = __dawrvBarStartSecCache.get(aboveBar);
+
             if (currentBar >= targetBar) {
-                high = currentSec;
-                low = 0.0;
+                high = Math.min(high, currentSec);
+                low = Math.min(low, high);
             } else {
-                low = currentSec;
-                high = Math.max(currentSec, 1.0);
+                low = Math.max(low, currentSec);
+                high = Math.max(high, currentSec, 1.0);
                 let probeBar = currentBar;
                 const maxHigh = 60 * 60 * 3; // 3 hours
                 while (probeBar < targetBar && high < maxHigh) {
@@ -2178,6 +2205,8 @@ async function handleMeasureCommand(event, command, measure, measureEnd) {
                 return { success: false, error: `Seek completed but landed on bar ${tf ? tf.bar : '?'} (wanted ${targetBar})` };
             }
 
+            // Store exact bar start time for future calls (speeds up navigation)
+            __dawrvBarStartSecCache.set(targetBar, high);
             return { success: true, host, posSec: tf.posSec, bar: tf.bar };
         }
 
