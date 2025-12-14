@@ -36,3 +36,6 @@ voice-engine/vosk/models/*
 !voice-engine/vosk/models/.gitkeep
 ai-training/training-data/*
 !ai-training/training-data/.gitkeep
+
+# Local vendored deps / clones
+python/Wav2Lip/
