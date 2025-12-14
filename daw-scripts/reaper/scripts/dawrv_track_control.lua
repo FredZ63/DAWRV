@@ -1,6 +1,6 @@
 -- DAWRV: Track Control
 -- Reads ExtState parameters and controls REAPER tracks
--- Supports: select, mute, unmute, solo, unsolo, arm, volume, pan
+-- Supports: select, mute, unmute, solo, unsolo, arm, disarm, unarm, volume, pan
 
 local function log(msg)
     reaper.ShowConsoleMsg("DAWRV Track Control: " .. tostring(msg) .. "\n")
@@ -74,10 +74,14 @@ local function main()
         log("Unsoloed track " .. track_num)
         
     elseif command == "arm" then
-        -- Toggle record arm
-        local current_arm = reaper.GetMediaTrackInfo_Value(track, "I_RECARM")
-        reaper.SetMediaTrackInfo_Value(track, "I_RECARM", current_arm == 1 and 0 or 1)
-        log("Toggled record arm for track " .. track_num)
+        -- Always ARM (enable recording), don't toggle
+        reaper.SetMediaTrackInfo_Value(track, "I_RECARM", 1)
+        log("Armed track " .. track_num .. " for recording")
+        
+    elseif command == "disarm" or command == "unarm" then
+        -- Always DISARM (disable recording), don't toggle
+        reaper.SetMediaTrackInfo_Value(track, "I_RECARM", 0)
+        log("Disarmed track " .. track_num)
         
     elseif command == "volume" then
         local volume_percent = parse_number(value_str)

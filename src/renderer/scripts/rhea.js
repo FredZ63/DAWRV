@@ -1,5 +1,7 @@
 class RHEAController {
     constructor() {
+        // Build stamp to confirm which rhea.js is actually running
+        console.log('🧩 RHEA rhea.js loaded (wake-gate build): 2025-12-13T07:45Z');
         this.status = 'ready';
         this.isListening = false;
         this.recognition = null;
@@ -46,6 +48,35 @@ class RHEAController {
             'unsolo': 9,
             'armtrack': 40294,  // Toggle record arm for selected track
             'unarmtrack': 40294, // Same action, it's a toggle
+            'disarmtrack': 40294, // Alias for unarmtrack
+            
+            // === PHASE 1: RECORDING ESSENTIALS ===
+            // Record Arm Controls
+            'armall': 40490,  // Track: Arm all tracks for recording
+            'disarmall': 40491,  // Track: Unarm all tracks for recording
+            
+            // Punch Recording
+            'punchin': 40076,  // Options: Toggle auto-punch record
+            'punchout': 40076,  // Same as punchin (toggle)
+            'autopunch': 40076,  // Options: Toggle auto-punch record
+            'setpunchin': 'punch_in_at_bar',  // Custom - set punch-in point at specific bar
+            'setpunchout': 'punch_out_at_bar',  // Custom - set punch-out point at specific bar
+            'enableautopunch': 40076,  // Enable auto-punch mode
+            
+            // Recording Modes
+            'overdub': 40252,  // Options: Toggle record mode (normal/overdub)
+            'replacemode': 40253,  // Options: Toggle record mode (normal/replace)
+            'tapemode': 40076,  // Options: Tape-style recording
+            'looprecord': 40068,  // Options: Toggle loop recording enabled
+            'recordinput': 40252,  // Record: input (audio or MIDI) - normal mode
+            'recordnormal': 40252,  // Record: normal mode (alias)
+            'recordoutput': 40718,  // Record: output (record track output)
+            'recorddisable': 40716,  // Record: disable (input monitoring only)
+            'inputmonitoring': 40716,  // Input monitoring only (alias)
+            
+            // Input Monitoring
+            'monitoron': 40495,  // Track: Toggle input monitor on selected track
+            'monitoroff': 40495,  // Same action (toggle)
             
             // Track Control - Specific (with track number)
             'selecttrack': 'track_select',  // Custom - select specific track by number
@@ -56,6 +87,14 @@ class RHEAController {
             'armtracknum': 'track_arm',     // Custom - arm specific track
             'settrackvolume': 'track_volume', // Custom - set track volume
             'settrackpan': 'track_pan',     // Custom - set track pan
+            'settrackwidth': 'track_width', // Custom - set track stereo width
+            
+            // Master Fader Commands
+            'mutemaster': 14,              // Track: Toggle mute for master track
+            'unmutemaster': 14,            // Same toggle action
+            'solomaster': 14016,           // Master track: Toggle solo (if applicable)
+            'unsolomaster': 14016,         // Same toggle action
+            'setmastervolume': 'master_volume', // Custom - set master volume
             
             // Navigation
             'zoomout': 1012,
@@ -100,7 +139,6 @@ class RHEAController {
             'muteall': 40339,  // Track: Mute all tracks
             'unmuteall': 40340,  // Track: Unmute all tracks
             'unsololall': 40340,  // Track: Unsolo all tracks
-            'unarmall': 40491,  // Track: Unarm all tracks for recording
             
             // Mixer View Options
             'showmcp': 40075,  // View: Toggle show mixer control panel
@@ -109,13 +147,6 @@ class RHEAController {
             'showtcp': 40074,  // View: Toggle show track control panel
             'hidetcp': 40074,
             'toggletcp': 40074,
-            
-            // Punch Recording
-            'toggleautopunch': 40076,  // Options: Toggle auto-punch record
-            'enableautopunch': 40076,  // Options: Toggle auto-punch record
-            'disableautopunch': 40076,  // Options: Toggle auto-punch record
-            'punchin': 40076,  // Options: Toggle auto-punch record (enables it)
-            'punchout': 40076,  // Options: Toggle auto-punch record (same toggle)
             
             // Meta commands
             'help': 'show_help'  // Show available commands
@@ -128,6 +159,30 @@ class RHEAController {
             enableFuzzyMatching: true,
             autoRestart: true
         };
+
+        // Wake phrase gating to avoid reacting to music playback
+        this.wakePhrases = ['hey rhea', 'rhea'];
+        // Wake gating UI settings
+        // Modes:
+        // - always: wake phrase required for all VOICE input
+        // - playback: wake phrase required only during playback/recording (best if transport feedback is reliable)
+        // - off: no wake phrase required (not recommended)
+        this.wakeMode = localStorage.getItem('rhea_wake_mode') || 'always';
+        const savedWakeMs = parseInt(localStorage.getItem('rhea_wake_session_ms') || '6000', 10);
+        this.wakeSessionDurationMs = Number.isFinite(savedWakeMs) ? savedWakeMs : 6000;
+
+        // Derived flags used by gating logic
+        this.requireWakePhrase = this.wakeMode === 'always';
+        this.requireWakePhraseWhilePlaying = this.wakeMode !== 'off';
+        this.isTransportPlaying = false;
+        this._wakeSessionUntil = 0;
+
+        // Failsafe transport inference from playhead movement (covers OSC setups that don't
+        // reliably send /play but DO send time/pos updates while playing)
+        this._dawPosLastSec = null;
+        this._dawPosLastTs = 0;
+        this._dawInferredPlayingUntil = 0; // timestamp (ms) until which we consider transport active
+        this._lastDawStateTs = 0;
         
         // Command deduplication - DISABLED for maximum responsiveness
         this.lastProcessedCommand = null;
@@ -146,23 +201,100 @@ class RHEAController {
         // Default: true (RHEA speaks), but can be toggled to false (silent mode) in Voice Settings
         this.voiceFeedbackEnabled = localStorage.getItem('voiceFeedbackEnabled') !== 'false';
         console.log('🗣️ Voice feedback initialized:', this.voiceFeedbackEnabled ? 'ENABLED' : 'DISABLED');
+
+        // Transport tracking for scheduled actions (e.g., stop at bar)
+        this.lastKnownTempoBpm = 120; // fallback if tempo not fetched
+        this.beatsPerBar = 4; // assume 4/4 for scheduling estimates
+        this.pendingStopBar = null;
+        this.pendingStopBarSeconds = null;
+        this.pendingStopTolerance = 0.15; // seconds tolerance
+        this.lastTransportSeconds = 0;
+        
+        // Screen Awareness System
+        this.screenAwareness = null;
+        this.initScreenAwareness().catch(error => {
+            console.error('❌ Screen Awareness initialization error:', error);
+        });
         
         // Subscribe to DAW state updates (transport position, playing, etc.)
         try {
             if (window.dawrv?.voice?.onDawState) {
                 window.dawrv.voice.onDawState((state) => {
-                    if (this.aiAgent && state?.transport) {
+                    const t = state?.transport || null;
+                    if (!t) return;
+                    this._lastDawStateTs = Date.now();
+
+                    // Support both schemas:
+                    // - New: { playing: bool, recording: bool, loopEnabled: bool, positionSeconds: number }
+                    // - Old: { play: 0/1, record: 0/1, repeat: 0/1, pause: 0/1, time/pos: number }
+                    const isPlaying = (typeof t.playing === 'boolean') ? t.playing : (t.play === 1);
+                    const isRecording = (typeof t.recording === 'boolean') ? t.recording : (t.record === 1);
+                    const loopEnabled =
+                        (typeof t.loopEnabled === 'boolean') ? t.loopEnabled :
+                        (typeof t.repeat === 'number') ? (t.repeat !== 0) :
+                        false;
+                    const posSec =
+                        (typeof t.positionSeconds === 'number') ? t.positionSeconds :
+                        (typeof t.position === 'number') ? t.position :
+                        (typeof t.pos === 'number') ? t.pos :
+                        0;
+
+                    if (this.aiAgent) {
                         this.aiAgent.updateDAWContext({
-                            isPlaying: !!state.transport.playing,
-                            isRecording: !!state.transport.recording,
-                            loopEnabled: !!state.transport.loopEnabled,
-                            positionSeconds: state.transport.positionSeconds || 0,
+                            isPlaying,
+                            isRecording,
+                            loopEnabled,
+                            positionSeconds: posSec || 0,
                             lastActionTime: Date.now()
                         });
+                    }
+
+                    // Use DAW state to honor scheduled stop-at-bar + wake gating
+                    this.lastTransportSeconds = posSec || 0;
+                    this.isTransportPlaying = !!(isPlaying || isRecording);
+
+                    // Failsafe inference: if playhead is moving, treat as "playing" for wake gating
+                    const now = Date.now();
+                    const lastSec = this._dawPosLastSec;
+                    const lastTs = this._dawPosLastTs;
+                    this._dawPosLastSec = (typeof posSec === 'number') ? posSec : 0;
+                    this._dawPosLastTs = now;
+                    if (lastSec != null && (now - (lastTs || 0)) < 2000) {
+                        if (Math.abs((posSec || 0) - lastSec) > 0.0005) {
+                            // Consider transport active for the next ~900ms even if play flag is missing
+                            this._dawInferredPlayingUntil = now + 900;
+                        }
+                    }
+
+                    // If we have a pending stop target in seconds, check threshold
+                    if ((isPlaying || isRecording) && this.pendingStopBarSeconds != null) {
+                        if ((posSec || 0) >= this.pendingStopBarSeconds - this.pendingStopTolerance) {
+                            console.log(`🛑 Scheduled stop at ~${this.pendingStopBarSeconds.toFixed(2)}s (bar ${this.pendingStopBar})`);
+                            window.api?.executeReaperAction?.(this.reaperActions['stop']).catch(() => {});
+                            this.pendingStopBar = null;
+                            this.pendingStopBarSeconds = null;
+                        }
                     }
                 });
             }
         } catch (_) {}
+        
+        // ============================================================
+        // COMPOUND COMMAND SYSTEM
+        // Allows multi-step commands like:
+        // "go to bar 15 on track 5, arm record, punch in at bar 18, punch out at bar 24, then disarm track 5"
+        // ============================================================
+        this.compoundCommandDelimiters = [
+            ' and then ',
+            ' then ',
+            ' and ',
+            ', then ',
+            ', and ',
+            ', ',
+            ' followed by ',
+            ' after that ',
+            ' next '
+        ];
         
         // Voice configuration for human-like speech
         this.voiceConfig = {
@@ -179,14 +311,31 @@ class RHEAController {
                 'Veena',              // Indian English female
                 'Fiona',              // Scottish female
             ],
-            rate: 0.95,              // Slightly slower for more natural (0.1-10, default 1)
+            rate: 0.85,              // Slower for clearer speech (0.1-10, default 1)
             pitch: 1.0,              // Natural pitch (0-2, default 1)
             volume: 0.9,             // Slightly quieter (0-1, default 1)
             selectedVoice: null      // Will be set on first use
         };
         
+        // Load saved voice speed from localStorage
+        try {
+            const savedSpeed = localStorage.getItem('rhea_voice_speed');
+            if (savedSpeed) {
+                this.voiceConfig.rate = parseFloat(savedSpeed);
+                console.log('🎤 Voice speed loaded:', this.voiceConfig.rate);
+            }
+        } catch (e) {
+            console.warn('Failed to load voice speed:', e);
+        }
+        
         // Initialize voice on first use
         this.initVoice();
+        
+        // Track active voice engine ('whisper' or 'asr')
+        this.activeVoiceEngine = null;
+        
+        // Listen for voice engine changes (from ASR config UI or main process)
+        this.setupVoiceEngineListeners();
         
         this.rheaResponsePhrases = [ // Full phrases RHEA says that shouldn't trigger commands
             'starting playback', 'stopping playback', 'recording started', 'undoing last action',
@@ -262,16 +411,121 @@ class RHEAController {
                 window.knowledgeUI = this.knowledgeUIManager; // Expose to window
                 console.log('✅ Knowledge UI Manager initialized');
             }
-            if (typeof TTSConfigManager !== 'undefined') {
-                this.ttsConfigManager = new TTSConfigManager(this);
-                window.ttsConfigUI = this.ttsConfigManager; // Expose to window
-                console.log('✅ TTS Config Manager initialized');
+            try {
+                const TCM = (window && window.TTSConfigManager) ? window.TTSConfigManager :
+                    (typeof TTSConfigManager !== 'undefined' ? TTSConfigManager : null);
+                if (TCM) {
+                    this.ttsConfigManager = new TCM(this);
+                    window.ttsConfigUI = this.ttsConfigManager; // Expose to window
+                    console.log('✅ TTS Config Manager initialized');
+                } else {
+                    console.warn('⚠️ TTSConfigManager class not available yet');
+                }
+            } catch (e) {
+                console.error('❌ Failed to initialize TTS Config Manager:', e?.message || e);
+            }
+
+            // Always expose a reliable function to open Voice Settings (even if app.js misses globals)
+            window.openVoiceSettings = () => {
+                const mgr = (window.ttsConfigUI && typeof window.ttsConfigUI.show === 'function')
+                    ? window.ttsConfigUI
+                    : (this.ttsConfigManager && typeof this.ttsConfigManager.show === 'function')
+                        ? this.ttsConfigManager
+                        : null;
+                if (!mgr) throw new Error('TTSConfigManager not available');
+                mgr.show();
+            };
+            
+            // Initialize Advanced ASR Config UI
+            if (typeof ASRConfigUI !== 'undefined') {
+                this.asrConfigUI = new ASRConfigUI(this);
+                window.ASRConfigUI = this.asrConfigUI; // Expose to window
+                console.log('✅ ASR Config UI initialized');
+                
+                // Setup ASR event listeners
+                this.setupASREventListeners();
             }
             
             // Dispatch event to notify that managers are ready
+            window.__rheaManagersReady = true;
             window.dispatchEvent(new CustomEvent('rhea-managers-ready'));
             console.log('🎉 All RHEA managers ready!');
         }, 500); // Reduced from 1000ms to 500ms
+    }
+    
+    /**
+     * Setup ASR Event Listeners
+     * Connects to the advanced ASR service events
+     */
+    setupASREventListeners() {
+        if (!window.api) {
+            console.log('⚠️ API not available for ASR events');
+            return;
+        }
+        
+        // Listen for ASR transcripts
+        if (window.api.onASRTranscript) {
+            window.api.onASRTranscript((data) => {
+                console.log('🎯 ASR Transcript:', data);
+                
+                // Update ASR Config UI if open
+                if (this.asrConfigUI) {
+                    this.asrConfigUI.updateLiveTranscript(data.text, data.confidence);
+                }
+                
+                // Process the command
+                if (data.text && data.text.trim()) {
+                    // ASR transcript is VOICE source (hard-gated while transport is active)
+                    const gate = this.preprocessVoiceTranscript(data.text);
+                    if (!gate.accept) {
+                        console.log('🔇 Ignoring ASR transcript (wake gate):', data.text);
+                        return;
+                    }
+                    this.processCommand(gate.transcript, { source: 'voice', skipWakeCheck: gate.skipWakeCheck });
+                }
+            });
+            console.log('✅ ASR transcript listener registered');
+        }
+        
+        // Listen for ASR started
+        if (window.api.onASRStarted) {
+            window.api.onASRStarted(() => {
+                console.log('🎤 ASR started');
+                if (this.asrConfigUI) {
+                    this.asrConfigUI.isASRRunning = true;
+                    this.asrConfigUI.updateStatus();
+                }
+            });
+        }
+        
+        // Listen for ASR stopped
+        if (window.api.onASRStopped) {
+            window.api.onASRStopped((code) => {
+                console.log('🔇 ASR stopped:', code);
+                if (this.asrConfigUI) {
+                    this.asrConfigUI.isASRRunning = false;
+                    this.asrConfigUI.updateStatus();
+                }
+            });
+        }
+        
+        // Listen for ASR errors
+        if (window.api.onASRError) {
+            window.api.onASRError((error) => {
+                console.error('❌ ASR error:', error);
+                if (this.asrConfigUI) {
+                    this.asrConfigUI.showToast(`ASR Error: ${error}`, 'error');
+                }
+            });
+        }
+        
+        // Listen for mode changes
+        if (window.api.onASRModeChanged) {
+            window.api.onASRModeChanged((mode) => {
+                console.log('📝 ASR mode changed:', mode);
+                this.speak(`Switched to ${mode} mode`);
+            });
+        }
     }
     
     /**
@@ -330,13 +584,80 @@ class RHEAController {
     }
     
     /**
+     * Initialize Screen Awareness System
+     */
+    async initScreenAwareness() {
+        try {
+            // Wait a bit for window.api to be fully ready
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            if (typeof ScreenAwarenessUI === 'undefined') {
+                console.log('⚠️  ScreenAwarenessUI not available - skipping');
+                return;
+            }
+            
+            if (!window.api?.screenAwarenessStart) {
+                console.log('⚠️  Screen Awareness API not available - skipping');
+                return;
+            }
+            
+            this.screenAwareness = new ScreenAwarenessUI(this);
+            console.log('✅ Screen Awareness System initialized');
+            console.log('   Auto-announce:', this.screenAwareness.autoAnnounce);
+            console.log('   Hover delay:', this.screenAwareness.hoverDelay, 'ms');
+        } catch (error) {
+            console.error('❌ Failed to initialize Screen Awareness:', error);
+            this.screenAwareness = null;
+        }
+        
+        // Initialize keyboard shortcuts
+        try {
+            if (typeof KeyboardShortcuts !== 'undefined') {
+                this.keyboardShortcuts = new KeyboardShortcuts(this);
+                console.log('✅ Keyboard Shortcuts initialized');
+                console.log('   Toggle Listening:', this.keyboardShortcuts.getShortcutString('toggleListening'));
+                console.log('   Toggle Screen Awareness:', this.keyboardShortcuts.getShortcutString('toggleScreenAwareness'));
+            }
+        } catch (error) {
+            console.error('❌ Failed to initialize Keyboard Shortcuts:', error);
+        }
+    }
+    
+    /**
+     * Extract track number from control (for context-aware commands)
+     */
+    extractTrackFromControl(control) {
+        if (!control) return null;
+        
+        const text = `${control.title || ''} ${control.description || ''}`;
+        const match = text.match(/track\s+(\d+)/i);
+        
+        return match ? parseInt(match[1], 10) : null;
+    }
+    
+    /**
      * Initialize TTS Provider
+     * ONLY uses OpenAI TTS - NO browser fallback
      */
     async initTTS() {
         try {
             if (typeof TTSProvider !== 'undefined') {
                 // Load TTS config from localStorage
                 const ttsConfig = this.loadTTSConfig();
+                
+                // FORCE OpenAI if browser was somehow configured
+                if (ttsConfig.provider === 'browser') {
+                    console.log('⚠️ Browser TTS configured - forcing OpenAI');
+                    ttsConfig.provider = 'openai';
+                    
+                    // Get API key from AI config
+                    try {
+                        const aiConfig = JSON.parse(localStorage.getItem('rhea_ai_config') || '{}');
+                        if (aiConfig.apiKey) {
+                            ttsConfig.apiKey = aiConfig.apiKey;
+                        }
+                    } catch (e) {}
+                }
                 
                 this.ttsProvider = new TTSProvider(ttsConfig);
                 const result = await this.ttsProvider.initialize();
@@ -345,40 +666,16 @@ class RHEAController {
                     console.log('🎤 TTS Provider initialized:', ttsConfig.provider);
                 } else {
                     console.warn('⚠️ TTS Provider initialization failed:', result.error);
-                    
-                    // AUTO-FALLBACK: If ElevenLabs fails, switch to browser TTS
-                    if (ttsConfig.provider === 'elevenlabs') {
-                        console.log('🔄 ElevenLabs failed - auto-switching to Browser TTS');
-                        const fallbackConfig = { provider: 'browser', apiKey: null, voiceId: null };
-                        this.saveTTSConfig(fallbackConfig); // Save fallback to prevent future errors
-                        this.ttsProvider = new TTSProvider(fallbackConfig);
-                        await this.ttsProvider.initialize();
-                        console.log('✅ Fallback to Browser TTS successful');
-                    } else {
-                        // Fallback to browser TTS
-                        this.ttsProvider = null;
-                    }
+                    console.warn('   Will use direct OpenAI API calls as fallback');
+                    // NO browser fallback - speakOpenAI() will be used directly
                 }
             } else {
-                console.log('⚠️  TTS Provider not available, using browser TTS');
+                console.log('⚠️  TTS Provider class not available - will use direct OpenAI API');
             }
         } catch (error) {
             console.error('❌ Failed to initialize TTS Provider:', error);
-            console.log('🔄 Falling back to Browser TTS due to error');
-            
-            // AUTO-FALLBACK: Save browser TTS config to prevent future errors
-            const fallbackConfig = { provider: 'browser', apiKey: null, voiceId: null };
-            this.saveTTSConfig(fallbackConfig);
-            
-            // Try to initialize with fallback
-            try {
-                this.ttsProvider = new TTSProvider(fallbackConfig);
-                await this.ttsProvider.initialize();
-                console.log('✅ Fallback to Browser TTS successful');
-            } catch (fallbackError) {
-                console.error('❌ Even fallback failed:', fallbackError);
-                this.ttsProvider = null;
-            }
+            console.log('⚠️ Will use direct OpenAI API calls (no browser TTS)');
+            // NO browser fallback - speakOpenAI() will be used directly
         }
     }
     
@@ -386,20 +683,55 @@ class RHEAController {
      * Load TTS configuration from localStorage
      */
     loadTTSConfig() {
+        // Always try to get OpenAI API key from AI config first
+        let openaiKey = null;
+        try {
+            const aiConfig = localStorage.getItem('rhea_ai_config');
+            if (aiConfig) {
+                const aiParsed = JSON.parse(aiConfig);
+                openaiKey = aiParsed.apiKey;
+                if (openaiKey) {
+                    console.log('🔑 Found OpenAI API key from AI config');
+                }
+            }
+        } catch (e) {
+            console.warn('Could not load AI config for API key:', e);
+        }
+        
         try {
             const saved = localStorage.getItem('rhea_tts_config');
+            console.log('📥 Loading TTS config from localStorage:', saved);
             if (saved) {
-                return JSON.parse(saved);
+                const parsed = JSON.parse(saved);
+                
+                // If using OpenAI, always inject the API key from AI config
+                if (parsed.provider === 'openai' && openaiKey) {
+                    parsed.apiKey = openaiKey;
+                    console.log('🔑 Injected OpenAI API key into TTS config');
+                }
+                
+                console.log('✅ TTS config loaded:', {
+                    provider: parsed.provider,
+                    hasApiKey: !!parsed.apiKey,
+                    hasGoogleApiKey: !!parsed.google?.apiKey
+                });
+                return parsed;
             }
         } catch (e) {
             console.warn('Failed to load TTS config:', e);
         }
         
-        // Default config (browser TTS)
+        // Default config (OpenAI TTS - ChatGPT-quality voices)
+        console.log('📝 Using default TTS config: OpenAI TTS (Nova voice)');
+        
         return {
-            provider: 'browser', // 'browser', 'elevenlabs', 'coqui', 'piper', 'polly', 'google'
-            apiKey: null,
-            voiceId: null
+            provider: 'openai', // OpenAI TTS - ChatGPT-quality voices
+            apiKey: openaiKey, // Use same API key as AI agent
+            openai: {
+                voice: 'nova', // Friendly, upbeat voice
+                model: 'tts-1', // Fast model (use 'tts-1-hd' for higher quality)
+                speed: 1.0
+            }
         };
     }
     
@@ -408,12 +740,23 @@ class RHEAController {
      */
     saveTTSConfig(config) {
         try {
+            console.log('💾 Saving TTS config:', {
+                provider: config.provider,
+                hasApiKey: !!config.apiKey,
+                hasGoogleApiKey: !!config.google?.apiKey,
+                fullConfig: config
+            });
             localStorage.setItem('rhea_tts_config', JSON.stringify(config));
+            console.log('✅ TTS config saved to localStorage');
+            
+            // Verify it was saved
+            const verification = localStorage.getItem('rhea_tts_config');
+            console.log('🔍 Verification - config in localStorage:', verification ? 'YES' : 'NO');
+            
             // Reinitialize TTS provider
             this.initTTS();
-            console.log('✅ TTS config saved');
         } catch (e) {
-            console.error('Failed to save TTS config:', e);
+            console.error('❌ Failed to save TTS config:', e);
         }
     }
     
@@ -481,10 +824,10 @@ class RHEAController {
         return {
             provider: 'openai', // 'openai', 'anthropic', 'local'
             apiKey: null,
-            model: 'gpt-4o-mini',
+            model: 'gpt-4o',  // Full GPT-4o for best natural language understanding
             baseURL: null,
-            temperature: 0.7,
-            maxTokens: 500,
+            temperature: 0.8,  // Higher for more natural responses
+            maxTokens: 800,  // Increased for fuller responses
             enableMemory: true,
             maxContextLength: 10,
             enableTools: true,
@@ -555,7 +898,13 @@ class RHEAController {
             this.recognition.onresult = (event) => {
                 const transcript = event.results[event.results.length - 1][0].transcript;
                 console.log('Heard:', transcript);
-                this.processCommand(transcript);
+                // Browser speech recognition is VOICE source (hard-gated while transport is active)
+                const gate = this.preprocessVoiceTranscript(transcript);
+                if (!gate.accept) {
+                    console.log('🔇 Ignoring browser transcript (wake gate):', transcript);
+                    return;
+                }
+                this.processCommand(gate.transcript, { source: 'voice', skipWakeCheck: gate.skipWakeCheck });
             };
             
             this.recognition.onerror = (event) => {
@@ -613,7 +962,8 @@ class RHEAController {
                         this.isProcessingCommand = false;
                     }
                     console.log('*** Processing manual command:', command);
-                    this.processCommand(command);
+                    // Manual command input is TYPED source (never require wake phrase)
+                    this.processCommand(command, { source: 'typed' });
                     manualInput.value = '';
                 } else {
                     console.log('*** No command entered ***');
@@ -671,62 +1021,61 @@ class RHEAController {
 
     async toggleVoice() {
         if (!this.isListening) {
-            // Try to start via IPC first (Python listener)
-            if (window.dawrv && window.dawrv.voice) {
+            // ========================================
+            // START LISTENING - Use Whisper mode (kills ASR if running)
+            // ========================================
+            console.log('🎤 Starting voice listening (Whisper mode)...');
+            
+            // Use the unified voice engine API to switch to Whisper
+            // This automatically kills any running ASR service
+            if (window.api && window.api.startWhisperEngine) {
                 try {
-                    console.log('📞 ========================================');
-                    console.log('📞 Calling IPC startListening...');
-                    console.log('📞 window.dawrv exists:', !!window.dawrv);
-                    console.log('📞 window.dawrv.voice exists:', !!(window.dawrv && window.dawrv.voice));
-                    console.log('📞 window.dawrv.voice.startListening exists:', !!(window.dawrv && window.dawrv.voice && window.dawrv.voice.startListening));
-                    
-                    const result = await window.dawrv.voice.startListening();
-                    
-                    console.log('📞 ========================================');
-                    console.log('📞 IPC result received');
-                    console.log('📞 IPC result:', result);
-                    console.log('📞 Result type:', typeof result);
-                    console.log('📞 Result is null?', result === null);
-                    console.log('📞 Result is undefined?', result === undefined);
-                    if (result) {
-                        console.log('📞 Result.success:', result.success);
-                        console.log('📞 Result.error:', result.error);
-                        console.log('📞 Full result JSON:', JSON.stringify(result, null, 2));
-                    }
-                    console.log('📞 ========================================');
+                    console.log('🔄 Switching to Whisper mode (will stop ASR if running)...');
+                    const result = await window.api.startWhisperEngine();
                     
                     if (result && result.success) {
-                        console.log('✅ IPC startListening succeeded');
+                        console.log('✅ Whisper engine started successfully');
+                        this.activeVoiceEngine = 'whisper';
                         this.startListening();
                     } else {
-                        console.error('❌ ========================================');
-                        console.error('❌ Failed to start voice listening via IPC');
-                        console.error('❌ Full result object:', JSON.stringify(result, null, 2));
-                        console.error('❌ Result type:', typeof result);
-                        console.error('❌ Result.success:', result ? result.success : 'result is null/undefined');
-                        console.error('❌ Error message:', result ? result.error : 'No result returned');
-                        console.error('❌ This means the Python voice listener failed to start.');
-                        console.error('❌ Check the main process console (terminal) for detailed error messages.');
-                        console.error('❌ ========================================');
-                        // Fallback to browser speech recognition
+                        console.error('❌ Failed to start Whisper:', result?.error);
+                        // Fallback: try browser speech recognition
                         this.startListening();
                     }
                 } catch (error) {
-                    console.error('❌ ========================================');
-                    console.error('❌ EXCEPTION in voice listening IPC call');
-                    console.error('❌ Error:', error);
-                    console.error('❌ Error message:', error.message);
-                    console.error('❌ Error stack:', error.stack);
-                    console.error('❌ ========================================');
-                    // Fallback to browser speech recognition
+                    console.error('❌ Whisper engine error:', error);
+                    // Fallback: try browser speech recognition
+                    this.startListening();
+                }
+            } else if (window.dawrv && window.dawrv.voice) {
+                // Legacy fallback
+                try {
+                    const result = await window.dawrv.voice.startListening();
+                    if (result && result.success) {
+                        this.startListening();
+                    } else {
+                        this.startListening();
+                    }
+                } catch (error) {
                     this.startListening();
                 }
             } else {
                 this.startListening();
             }
         } else {
-            // Stop listening
-            if (window.dawrv && window.dawrv.voice) {
+            // ========================================
+            // STOP LISTENING
+            // ========================================
+            console.log('🛑 Stopping voice listening...');
+            
+            if (window.api && window.api.stopAllVoiceEngines) {
+                try {
+                    await window.api.stopAllVoiceEngines();
+                    this.activeVoiceEngine = null;
+                } catch (error) {
+                    console.error('Error stopping voice engines:', error);
+                }
+            } else if (window.dawrv && window.dawrv.voice) {
                 try {
                     await window.dawrv.voice.stopListening();
                 } catch (error) {
@@ -742,6 +1091,11 @@ class RHEAController {
         this.isListening = true;
         this.updateStatus('listening', 'Listening...');
         this.updateVoiceEngineStatus('listening', 'Listening...');
+        
+        // Send to overlay window
+        if (window.overlay && window.overlay.updateListening) {
+            window.overlay.updateListening(true);
+        }
         
         if (this.voiceToggle) {
             this.voiceToggle.classList.add('active');
@@ -775,6 +1129,11 @@ class RHEAController {
         this.updateStatus('ready', 'Ready to assist');
         this.updateVoiceEngineStatus('ready', 'Voice engine ready');
         
+        // Send to overlay window
+        if (window.overlay && window.overlay.updateListening) {
+            window.overlay.updateListening(false);
+        }
+        
         if (this.voiceToggle) {
             this.voiceToggle.classList.remove('active');
             const btnText = this.voiceToggle.querySelector('.btn-text');
@@ -795,6 +1154,61 @@ class RHEAController {
             }
         }
     }
+    
+    // Ensure listening is active (called after RHEA finishes speaking)
+    ensureListening() {
+        // Only resume if we were listening before
+        if (!this.isListening) {
+            console.log('👂 Listening was not active, not resuming');
+            // STILL clear the signal file even if not listening (prevent stuck state)
+            if (window.api && window.api.signalSpeaking) {
+                window.api.signalSpeaking(false).catch(() => {});
+            }
+            return;
+        }
+        
+        console.log('👂 ENSURING listening is active after speech...');
+        
+        // CRITICAL: Clear the Python signal file FIRST
+        if (window.api && window.api.signalSpeaking) {
+            window.api.signalSpeaking(false).catch(() => {});
+            console.log('👂 Cleared Python speaking signal');
+        }
+        
+        // Small delay to avoid catching echo, then restart browser recognition
+        setTimeout(() => {
+            if (this.recognition && this.isListening) {
+                try {
+                    this.recognition.stop();
+                    setTimeout(() => {
+                        if (this.isListening) {
+                            try {
+                                this.recognition.start();
+                                console.log('👂 Browser speech recognition restarted');
+                            } catch (e) {
+                                console.log('👂 Recognition already running');
+                            }
+                        }
+                    }, 100);
+                } catch (error) {
+                    // Already stopped
+                }
+            }
+        }, 300); // 300ms delay to let echo fade
+        
+        // Also ping the Python listener
+        if (window.dawrv && window.dawrv.voice) {
+            window.dawrv.voice.startListening().then(result => {
+                if (result && result.success) {
+                    console.log('👂 Python listener confirmed active');
+                }
+            }).catch(() => {});
+        }
+        
+        // Update UI to confirm listening
+        this.updateStatus('listening', 'Listening...');
+        this.updateVoiceEngineStatus('listening', 'Listening...');
+    }
 
     updateStatus(status, message) {
         this.status = status;
@@ -805,10 +1219,136 @@ class RHEAController {
             this.statusIndicator.className = 'status-indicator ' + status;
         }
         
+        // DON'T change avatar classes - transport state should persist!
+        // Avatar only shows transport ring (playing/stopped/recording)
+        // Status indicator (tab) shows listening/ready/error states
+    }
+    
+    /**
+     * Update transport state visual (ring around avatar)
+     */
+    updateTransportState(state) {
+        console.log('🎨🎨🎨 updateTransportState() CALLED with state:', state);
+        
         const avatar = document.querySelector('.rhea-avatar');
-        if (avatar) {
-            avatar.className = 'rhea-avatar ' + status;
+        if (!avatar) {
+            console.error('❌ Avatar element not found!');
+            console.error('   Searched for: .rhea-avatar');
+            console.error('   Available elements:', document.querySelectorAll('[class*="avatar"]'));
+            return;
         }
+        
+        console.log('✅ Avatar element found:', avatar);
+        console.log('   Avatar classes BEFORE:', avatar.className);
+        
+        // Remove all transport states AND other interfering states
+        avatar.classList.remove('transport-stopped', 'transport-playing', 'transport-recording', 'transport-paused');
+        avatar.classList.remove('listening', 'speaking', 'responding', 'ready', 'error');
+        
+        console.log('   Avatar classes AFTER removal:', avatar.className);
+        
+        // Determine overlay state
+        let overlayState = 'stopped';
+        
+        // Add new state
+        if (state === 'playing' || state === 'play') {
+            avatar.classList.add('transport-playing');
+            overlayState = 'playing';
+            console.log('   ✅ Added transport-playing class');
+        } else if (state === 'recording' || state === 'record') {
+            avatar.classList.add('transport-recording');
+            overlayState = 'recording';
+            console.log('   ✅ Added transport-recording class');
+        } else if (state === 'paused') {
+            avatar.classList.add('transport-paused');
+            overlayState = 'stopped';
+            console.log('   ✅ Added transport-paused class');
+        } else {
+            avatar.classList.add('transport-stopped');
+            overlayState = 'stopped';
+            console.log('   ✅ Added transport-stopped class');
+        }
+
+        // Keep wake gating in sync with the *visual* transport state.
+        // (DAW state payloads vary: some use play/record, others use playing/recording)
+        this.isTransportPlaying = overlayState === 'playing' || overlayState === 'recording';
+        
+        console.log('   Avatar classes AFTER addition:', avatar.className);
+        
+        // Send transport state to overlay
+        if (window.overlay && window.overlay.updateTransportState) {
+            window.overlay.updateTransportState(overlayState);
+            console.log(`🎨 Sent transport state to overlay: ${overlayState}`);
+        }
+        
+        // Apply custom ring settings if they exist
+        this.applyRingSettings();
+        
+        console.log('🎨🎨🎨 updateTransportState() COMPLETE');
+    }
+    
+    /**
+     * Apply custom ring brightness and pulse speed settings
+     */
+    applyRingSettings() {
+        const avatar = document.querySelector('.rhea-avatar');
+        if (!avatar) return;
+        
+        // Load settings from localStorage
+        const settings = JSON.parse(localStorage.getItem('rhea_ring_settings') || '{}');
+        
+        // Apply CSS custom properties
+        if (settings.playingBrightness !== undefined) {
+            avatar.style.setProperty('--playing-brightness', settings.playingBrightness);
+        }
+        if (settings.playingPulseSpeed !== undefined) {
+            avatar.style.setProperty('--playing-pulse-speed', settings.playingPulseSpeed + 's');
+        }
+        if (settings.recordingBrightness !== undefined) {
+            avatar.style.setProperty('--recording-brightness', settings.recordingBrightness);
+        }
+        if (settings.recordingPulseSpeed !== undefined) {
+            avatar.style.setProperty('--recording-pulse-speed', settings.recordingPulseSpeed + 's');
+        }
+        if (settings.stoppedBrightness !== undefined) {
+            avatar.style.setProperty('--stopped-brightness', settings.stoppedBrightness);
+        }
+    }
+    
+    /**
+     * Flash avatar when hovering over REAPER control (Screen Awareness)
+     * This is a BRIEF flash that doesn't interfere with persistent transport state
+     */
+    flashHoverDetection(controlType = 'generic') {
+        const avatar = document.querySelector('.rhea-avatar');
+        if (!avatar) return;
+        
+        // Remove any existing hover classes (but NOT transport classes!)
+        avatar.classList.remove('hover-detected', 'hover-fader', 'hover-button', 'hover-mute', 'hover-solo', 'hover-pan', 'hover-fx');
+        
+        // Map control type to CSS class
+        const typeMap = {
+            'volume-fader': 'hover-fader',
+            'slider': 'hover-fader',
+            'mute-button': 'hover-mute',
+            'solo-button': 'hover-solo',
+            'pan-control': 'hover-pan',
+            'fx-button': 'hover-fx',
+            'button': 'hover-button',
+            'reaper-control': 'hover-button'
+        };
+        
+        const hoverClass = typeMap[controlType] || 'hover-button';
+        
+        // Add ONLY the flash animation class (brief pulse)
+        // The color will come from the hover-specific class
+        avatar.classList.add('hover-detected', hoverClass);
+        
+        // Remove after brief animation (300ms flash only)
+        setTimeout(() => {
+            avatar.classList.remove('hover-detected', hoverClass);
+            // Transport state classes remain untouched!
+        }, 300);
     }
     
     updateVoiceEngineStatus(status, message) {
@@ -857,7 +1397,7 @@ class RHEAController {
                 name: 'newtrack',
                 keywords: ['new track', 'add track', 'create track', 'new channel', 'add channel', 'add new track', 'create new track'],
                 action: 'newtrack',
-                response: 'Creating new track',
+                response: 'Creating new',
                 priority: 9
             },
             {
@@ -880,6 +1420,127 @@ class RHEAController {
                 action: 'record',
                 response: 'Recording started',
                 priority: 5
+            },
+            // === PHASE 1: RECORDING ESSENTIALS ===
+            // Note: "arm track [number]" is handled by armtracknum below with higher priority
+            {
+                name: 'armtrack',
+                keywords: ['arm this track', 'arm selected track', 'arm current track', 'enable recording this', 'ready to record this'],
+                action: 'armtrack',
+                response: 'Armed for recording',
+                priority: 7  // Lower priority - armtracknum handles numbered tracks
+            },
+            {
+                name: 'disarmtrack',
+                keywords: ['disarm this track', 'unarm this track', 'disarm selected', 'unarm selected', 'take off record this'],
+                action: 'disarmtrack',
+                response: 'Disarmed',
+                priority: 7  // Lower priority
+            },
+            {
+                name: 'armall',
+                keywords: ['arm all tracks', 'arm everything', 'record arm all', 'enable all recording', 'arm all'],
+                action: 'armall',
+                response: 'All tracks armed for recording',
+                priority: 9
+            },
+            {
+                name: 'disarmall',
+                keywords: ['disarm all tracks', 'unarm all', 'disable all recording', 'unarm everything', 'disarm all'],
+                action: 'disarmall',
+                response: 'All tracks disarmed',
+                priority: 9
+            },
+            {
+                name: 'punchin',
+                keywords: ['punch in', 'punch record', 'start punch', 'drop in', 'punch in recording'],
+                action: 'punchin',
+                response: 'Punch in recording',
+                priority: 8
+            },
+            {
+                name: 'punchout',
+                keywords: ['punch out', 'stop punch', 'end punch', 'drop out', 'punch out recording'],
+                action: 'punchout',
+                response: 'Punch out',
+                priority: 8
+            },
+            {
+                name: 'autopunch',
+                keywords: ['auto punch', 'toggle auto punch', 'enable auto punch', 'turn on auto punch', 'automatic punch'],
+                action: 'autopunch',
+                response: 'Auto punch toggled',
+                priority: 9
+            },
+            {
+                name: 'overdub',
+                keywords: ['overdub', 'overdub mode', 'layer recording', 'enable overdub', 'turn on overdub'],
+                action: 'overdub',
+                response: 'Overdub mode enabled',
+                priority: 8
+            },
+            {
+                name: 'replacemode',
+                keywords: ['replace mode', 'replace recording', 'overwrite mode', 'enable replace', 'turn on replace'],
+                action: 'replacemode',
+                response: 'Replace mode enabled',
+                priority: 9
+            },
+            {
+                name: 'recordinput',
+                keywords: ['record input', 'normal recording', 'input mode', 'record audio', 'standard recording', 'input recording'],
+                action: 'recordinput',
+                response: 'Recording input mode',
+                priority: 9
+            },
+            {
+                name: 'recordoutput',
+                keywords: ['record output', 'output recording', 'record track output', 'bounce to track', 'output mode'],
+                action: 'recordoutput',
+                response: 'Recording track output',
+                priority: 9
+            },
+            {
+                name: 'recorddisable',
+                keywords: ['disable recording', 'no recording', 'turn off recording', 'stop recording mode'],
+                action: 'recorddisable',
+                response: 'Recording disabled',
+                priority: 9
+            },
+            {
+                name: 'inputmonitoring',
+                keywords: ['monitoring only', 'input monitoring', 'enable monitoring', 'turn on monitoring', 'monitor mode', 'listen to input'],
+                action: 'inputmonitoring',
+                response: 'Input monitoring only',
+                priority: 9
+            },
+            {
+                name: 'tapemode',
+                keywords: ['tape mode', 'tape style', 'enable tape mode', 'turn on tape mode'],
+                action: 'tapemode',
+                response: 'Tape mode enabled',
+                priority: 9
+            },
+            {
+                name: 'looprecord',
+                keywords: ['loop record', 'loop recording', 'enable loop record', 'record in loop', 'turn on loop recording'],
+                action: 'looprecord',
+                response: 'Loop recording enabled',
+                priority: 9
+            },
+            {
+                name: 'monitoron',
+                keywords: ['monitor on', 'input monitoring', 'enable monitoring', 'turn on monitor', 'monitor input'],
+                action: 'monitoron',
+                response: 'Input monitoring enabled',
+                priority: 8
+            },
+            {
+                name: 'monitoroff',
+                keywords: ['monitor off', 'disable monitoring', 'turn off monitor', 'stop monitoring'],
+                action: 'monitoroff',
+                response: 'Input monitoring disabled',
+                priority: 8
             },
             {
                 name: 'undo',
@@ -992,52 +1653,52 @@ class RHEAController {
             // Track commands
             {
                 name: 'deletetrack',
-                keywords: ['delete track', 'remove track', 'delete current track'],
+                keywords: ['delete track', 'delete channel', 'remove track', 'remove channel', 'delete current track', 'delete current channel'],
                 action: 'deletetrack',
-                response: 'Deleting track',
+                response: 'Deleting',
                 priority: 7
             },
             {
                 name: 'mute',
-                keywords: ['mute', 'mute track', 'silence', 'turn off'],
+                keywords: ['mute', 'mute track', 'mute channel', 'silence', 'turn off'],
                 action: 'mute',
-                response: 'Muting track',
+                response: 'Muting',
                 priority: 7
             },
             {
                 name: 'unmute',
-                keywords: ['unmute', 'turn on', 'enable track'],
+                keywords: ['unmute', 'turn on', 'enable track', 'enable channel'],
                 action: 'unmute',
-                response: 'Unmuting track',
+                response: 'Unmuting',
                 priority: 7
             },
             {
                 name: 'solo',
-                keywords: ['solo', 'solo track', 'isolate', 'solo this'],
+                keywords: ['solo', 'solo track', 'solo channel', 'isolate', 'solo this'],
                 action: 'solo',
-                response: 'Soloing track',
+                response: 'Soloing',
                 priority: 7
             },
             {
                 name: 'unsolo',
-                keywords: ['unsolo', 'unsolo track', 'unisolate', 'unsolo all'],
+                keywords: ['unsolo', 'unsolo track', 'unsolo channel', 'unisolate', 'unsolo all'],
                 action: 'unsolo',
-                response: 'Unsoloing track',
+                response: 'Unsoloing',
                 priority: 7
             },
             // Navigation commands
             {
                 name: 'nexttrack',
-                keywords: ['next track', 'go to next track', 'select next track'],
+                keywords: ['next track', 'go to next track', 'select next track', 'next channel', 'go to next channel'],
                 action: 'nexttrack',
-                response: 'Moving to next track',
+                response: 'Next',
                 priority: 7
             },
             {
                 name: 'previoustrack',
-                keywords: ['previous track', 'go to previous track', 'select previous track', 'last track'],
+                keywords: ['previous track', 'go to previous track', 'select previous track', 'last track', 'previous channel', 'go to previous channel'],
                 action: 'previoustrack',
-                response: 'Moving to previous track',
+                response: 'Previous',
                 priority: 7
             },
             {
@@ -1288,59 +1949,109 @@ class RHEAController {
             // Track Control Commands
             {
                 name: 'selecttrack',
-                keywords: ['select track', 'go to track', 'switch to track', 'choose track'],
+                keywords: ['select track', 'select channel', 'go to track', 'go to channel', 'switch to track', 'switch to channel', 'choose track', 'choose channel'],
                 action: 'selecttrack',
                 response: 'Selecting track',
                 priority: 8
             },
             {
                 name: 'mutetrack',
-                keywords: ['mute track', 'silence track', 'turn off track'],
+                keywords: ['mute track', 'mute channel', 'silence track', 'silence channel', 'turn off track', 'turn off channel'],
                 action: 'mutetrack',
-                response: 'Muting track',
+                response: 'Muting',
                 priority: 8
             },
             {
                 name: 'unmutetrack',
-                keywords: ['unmute track', 'turn on track', 'enable track'],
+                keywords: ['unmute track', 'unmute channel', 'turn on track', 'turn on channel', 'enable track', 'enable channel'],
                 action: 'unmutetrack',
-                response: 'Unmuting track',
+                response: 'Unmuting',
                 priority: 8
             },
             {
                 name: 'solotrack',
-                keywords: ['solo track', 'solo only track', 'isolate track'],
+                keywords: ['solo track', 'solo channel', 'solo only track', 'solo only channel', 'isolate track', 'isolate channel'],
                 action: 'solotrack',
-                response: 'Soloing track',
+                response: 'Soloing',
                 priority: 8
             },
             {
                 name: 'unsolotrack',
-                keywords: ['unsolo track', 'unsolo', 'remove solo track'],
+                keywords: ['unsolo track', 'unsolo channel', 'unsolo', 'remove solo track', 'remove solo channel'],
                 action: 'unsolotrack',
-                response: 'Unsoloing track',
+                response: 'Unsoloing',
                 priority: 8
             },
             {
                 name: 'armtracknum',
-                keywords: ['arm track', 'record arm track', 'enable recording track', 'record enable track'],
+                keywords: ['arm track', 'arm channel', 'record arm track', 'record arm channel', 'enable recording track', 'enable recording channel', 'record enable track', 'arm track number', 'arm channel number', 'record arm'],
                 action: 'armtracknum',
                 response: 'Arming track',
-                priority: 8
+                priority: 9  // Higher priority - handles "arm track 3" / "arm channel 3" etc.
+            },
+            {
+                name: 'disarmtracknum',
+                keywords: ['disarm track', 'disarm channel', 'unarm track', 'unarm channel', 'disable recording track', 'disable recording channel', 'unarm track number', 'unarm channel number'],
+                action: 'disarmtrack',
+                response: 'Disarming track',
+                priority: 9  // Higher priority - handles "disarm track 3" / "disarm channel 3" etc.
             },
             {
                 name: 'settrackvolume',
-                keywords: ['set track volume', 'track volume', 'volume track', 'set volume track'],
+                keywords: ['set track volume', 'set channel volume', 'track volume', 'channel volume', 'volume track', 'volume channel', 'set volume track', 'set volume channel'],
                 action: 'settrackvolume',
                 response: 'Setting track volume',
                 priority: 8
             },
             {
                 name: 'settrackpan',
-                keywords: ['pan track', 'set track pan', 'track pan', 'pan track left', 'pan track right', 'pan track center'],
+                keywords: ['pan track', 'pan channel', 'set track pan', 'set channel pan', 'track pan', 'channel pan', 'pan track left', 'pan channel left', 'pan track right', 'pan channel right', 'pan track center', 'pan channel center'],
                 action: 'settrackpan',
                 response: 'Panning track',
                 priority: 8
+            },
+            {
+                name: 'settrackwidth',
+                keywords: ['width track', 'width channel', 'set track width', 'set channel width', 'track width', 'channel width', 'stereo width', 'make mono', 'make stereo', 'narrow width', 'wide width', 'widen track', 'widen channel', 'narrow track', 'narrow channel'],
+                action: 'settrackwidth',
+                response: 'Setting width',
+                priority: 8
+            },
+            // Master Fader Commands
+            {
+                name: 'setmastervolume',
+                keywords: ['master volume', 'set master volume', 'master fader', 'set master fader', 'main volume', 'set main volume', 'master level', 'set master level', 'master to', 'set master to'],
+                action: 'setmastervolume',
+                response: 'Setting master volume',
+                priority: 9
+            },
+            {
+                name: 'mutemaster',
+                keywords: ['mute master', 'mute main', 'mute master fader', 'silence master', 'master mute'],
+                action: 'mutemaster',
+                response: 'Muting master',
+                priority: 9
+            },
+            {
+                name: 'unmutemaster',
+                keywords: ['unmute master', 'unmute main', 'unmute master fader', 'master unmute', 'enable master'],
+                action: 'unmutemaster',
+                response: 'Unmuting master',
+                priority: 9
+            },
+            {
+                name: 'solomaster',
+                keywords: ['solo master', 'master solo', 'solo main'],
+                action: 'solomaster',
+                response: 'Soloing master',
+                priority: 9
+            },
+            {
+                name: 'unsolomaster',
+                keywords: ['unsolo master', 'master unsolo', 'unsolo main'],
+                action: 'unsolomaster',
+                response: 'Unsoloing master',
+                priority: 9
             },
             // Mixer Control Commands
             {
@@ -1658,13 +2369,58 @@ class RHEAController {
      * Extract track number from voice command
      * Examples: "select track 3", "mute track one", "track 5"
      */
+    /**
+     * Get track information from REAPER (name, existence, etc.)
+     */
+    async getTrackInfo(trackNumber) {
+        try {
+            // Use REAPER's Web API to get track info
+            // Format: _/TRACK/{number} returns: TRACK <num> <name> <flags> <vol> <pan> ...
+            const port = 8080;
+            const url = `http://127.0.0.1:${port}/_/TRACK/${trackNumber}`;
+            
+            const response = await fetch(url, { 
+                method: 'GET',
+                signal: AbortSignal.timeout(2000)
+            });
+            
+            if (!response.ok) {
+                // Track doesn't exist
+                return { exists: false, number: trackNumber };
+            }
+            
+            const trackData = await response.text();
+            
+            // Parse response: TRACK <num> <name> <flags> <vol> <pan> ...
+            // Example: "TRACK	1	Guitar	520	1.000000	0.000000..."
+            const parts = trackData.split('\t');
+            const trackName = parts.length >= 3 ? parts[2] : `Track ${trackNumber}`;
+            
+            return {
+                exists: true,
+                number: trackNumber,
+                name: trackName.trim() || `Track ${trackNumber}`
+            };
+        } catch (error) {
+            console.warn(`Could not get track ${trackNumber} info:`, error);
+            // Assume track exists with default name if web API fails
+            return {
+                exists: true,
+                number: trackNumber,
+                name: `Track ${trackNumber}`
+            };
+        }
+    }
+    
     extractTrackNumber(text) {
         const lower = text.toLowerCase();
+        console.log(`🔢 Extracting track/channel number from: "${text}"`);
         
-        // Try numeric after "track" keyword
-        const trackMatch = lower.match(/track\s*(\d+)/i);
+        // Try numeric after "track" or "channel" keyword
+        const trackMatch = lower.match(/(?:track|channel)\s*(\d+)/i);
         if (trackMatch) {
             const num = parseInt(trackMatch[1], 10);
+            console.log(`🔢 Found "track/channel N" pattern: ${num}`);
             if (!isNaN(num) && num > 0 && num <= 128) return num;
         }
         
@@ -1672,13 +2428,18 @@ class RHEAController {
         const anyNumber = lower.match(/(\d+)/);
         if (anyNumber) {
             const num = parseInt(anyNumber[1], 10);
+            console.log(`🔢 Found any number: ${num}`);
             if (!isNaN(num) && num > 0 && num <= 128) return num;
         }
         
         // Try word numbers (one, two, three, etc.)
         const wordNumber = this.parseNumberWords(lower);
-        if (wordNumber && wordNumber > 0 && wordNumber <= 128) return wordNumber;
+        if (wordNumber && wordNumber > 0 && wordNumber <= 128) {
+            console.log(`🔢 Found word number: ${wordNumber}`);
+            return wordNumber;
+        }
         
+        console.log(`🔢 No track/channel number found`);
         return null;
     }
     
@@ -1739,6 +2500,54 @@ class RHEAController {
                 return { direction: 'right', value: Math.min(100, percent) };
             }
             return { direction: 'right', value: 100 };
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Extract stereo width value from text
+     * Examples: "make mono", "stereo", "narrow", "wide", "50% width"
+     * Width in REAPER: -1 = mono, 0 = normal stereo swap, 1 = stereo
+     */
+    extractWidthValue(text) {
+        const lower = text.toLowerCase();
+        
+        // Mono
+        if (/\bmono\b/i.test(lower)) {
+            return { description: 'mono', value: -1 };
+        }
+        
+        // Stereo (normal)
+        if (/\b(stereo|normal|default)\b/i.test(lower) && !/\bwide\b/i.test(lower)) {
+            return { description: 'stereo', value: 1 };
+        }
+        
+        // Narrow
+        if (/\bnarrow\b/i.test(lower)) {
+            const percentMatch = lower.match(/(\d+\.?\d*)\s*%?\s*narrow/i);
+            if (percentMatch) {
+                const percent = parseFloat(percentMatch[1]);
+                return { description: `${percent}% narrow`, value: percent / 100 };
+            }
+            return { description: 'narrow', value: 0.5 };
+        }
+        
+        // Wide
+        if (/\bwide\b/i.test(lower)) {
+            const percentMatch = lower.match(/(\d+\.?\d*)\s*%?\s*wide/i);
+            if (percentMatch) {
+                const percent = parseFloat(percentMatch[1]);
+                return { description: `${percent}% wide`, value: Math.min(2, percent / 100) };
+            }
+            return { description: 'wide', value: 1.5 };
+        }
+        
+        // Percentage only
+        const percentMatch = lower.match(/(\d+\.?\d*)\s*%/);
+        if (percentMatch) {
+            const percent = parseFloat(percentMatch[1]);
+            return { description: `${percent}%`, value: percent / 100 };
         }
         
         return null;
@@ -2071,27 +2880,43 @@ class RHEAController {
             /\b(what('s| is)?|why|how|when|where)\b.*\b(you|wrong|happened|happen|working|listening|hearing|understanding)\b/i,
             
             // Greetings and politeness - match anywhere, not just start
-            /\b(hi|hello|hey|howdy|greetings)\b/i,
+            /\b(hi|hello|hey|howdy|greetings|yo|sup|what's up)\b/i,
             /\b(thank you|thanks|thank ya|thx|appreciate it|much appreciated)\b/i,
             /\b(please|excuse me|pardon me)\b/i,
             /\b(good morning|good afternoon|good evening|good night)\b/i,
             /\b(goodbye|bye|see ya|later|catch you later)\b/i,
             
-            // Meta queries (about RHEA or commands)
+            // Meta queries (about RHEA, commands, or music production)
             /\b(help|what can you do|show me|tell me about|explain)\b/i,
+            /\b(how do i|how should i|what should i|can i)\b/i,
+            /\b(teach me|show me how|walk me through)\b/i,
             
-            // Trouble shooting
+            // Music production questions
+            /\b(what('s| is) (a|the|an))\b.*\b(compressor|eq|reverb|delay|plugin|vst|mix|master)\b/i,
+            /\b(how (do|does|should|can|would))\b.*\b(sound|mix|master|record|edit|compress|eq)\b/i,
+            /\b(why (is|does|do|should|would))\b.*\b(sound|mix|track|channel|audio)\b/i,
+            /\b(tips|advice|suggestions|recommend|thoughts)\b/i,
+            
+            // Troubleshooting
             /\b(not working|didn't work|nothing happened|no change|issue|problem|error)\b/i,
             /\b(listen|hear|understand|recognize)\b/i,
+            /\b(sounds? (wrong|off|weird|bad|muddy|harsh|thin|boomy))\b/i,
             
             // Status checks
             /\b(status|ready|available|online)\b/i,
             
             // Confirmation and clarification
             /\b(okay|ok|sure|yes|yeah|yep|no|nope|right|correct|exactly|absolutely)\b/i,
+            /\b(i mean|what i meant|actually|i was saying)\b/i,
+            /\b(never mind|forget it|scratch that|wait)\b/i,
             
             // Compliments and feedback
-            /\b(great|good job|nice|well done|perfect|awesome|excellent)\b/i
+            /\b(great|good job|nice|well done|perfect|awesome|excellent|love it|sounds good)\b/i,
+            
+            // Casual conversation
+            /\b(i think|i feel|i need|i want|i'm trying|i was wondering)\b/i,
+            /\b(kind of|sort of|maybe|perhaps|probably|definitely)\b/i,
+            /\b(by the way|also|oh and|speaking of)\b/i
         ];
         
         // Check if any conversational pattern matches
@@ -2107,86 +2932,851 @@ class RHEAController {
     }
     
     /**
+     * Find track number by name
+     */
+    async findTrackByName(trackName) {
+        try {
+            console.log(`🔍 Searching for track: "${trackName}"`);
+            console.log(`⚠️  Note: Track name search requires REAPER's web interface to be enabled`);
+            console.log(`   If not enabled, please use track numbers: "solo track 3"`);
+            
+            // Check up to 32 tracks (typical project size)
+            for (let i = 1; i <= 32; i++) {
+                const trackInfo = await this.getTrackInfo(i);
+                if (!trackInfo || !trackInfo.exists) {
+                    // No more tracks
+                    break;
+                }
+                
+                const name = trackInfo.name.toLowerCase();
+                const search = trackName.toLowerCase();
+                
+                console.log(`  Track ${i}: "${trackInfo.name}"`);
+                
+                // Check if name contains the search term
+                if (name.includes(search) || search.includes(name)) {
+                    console.log(`  ✅ MATCH! Track ${i} = "${trackInfo.name}"`);
+                    return i;
+                }
+                
+                // If we're getting generic names, HTTP API is disabled
+                if (trackInfo.name === `Track ${i}`) {
+                    console.log(`  ⚠️  Getting generic names - REAPER web interface not enabled`);
+                    // Stop searching, won't find anything useful
+                    break;
+                }
+            }
+            
+            console.log(`  ❌ No track found with name: "${trackName}"`);
+            console.log(`  💡 Try: "solo track [number]" or enable REAPER's web interface`);
+            return null;
+        } catch (error) {
+            console.error('Error finding track by name:', error);
+            return null;
+        }
+    }
+
+    // ============================================================
+    // COMPOUND COMMAND SYSTEM
+    // Handles multi-step commands like:
+    // "go to bar 15, arm track 5, punch in at bar 18, punch out at bar 24, then disarm track 5"
+    // ============================================================
+    
+    /**
+     * Parse a compound command into individual steps
+     * @param {string} transcript - The full command string
+     * @returns {Array|null} - Array of individual commands, or null if not compound
+     */
+    parseCompoundCommand(transcript) {
+        const lowerTranscript = transcript.toLowerCase().trim();
+        
+        // Check for compound delimiters
+        let foundDelimiter = null;
+        let commands = null;
+        
+        // Try each delimiter (longer ones first to avoid partial matches)
+        for (const delimiter of this.compoundCommandDelimiters) {
+            if (lowerTranscript.includes(delimiter)) {
+                // Split by this delimiter
+                commands = transcript.split(new RegExp(delimiter, 'i'))
+                    .map(cmd => cmd.trim())
+                    .filter(cmd => cmd.length > 0);
+                
+                if (commands.length > 1) {
+                    foundDelimiter = delimiter;
+                    console.log(`🔗 Found compound delimiter: "${delimiter}"`);
+                    break;
+                }
+            }
+        }
+        
+        // If no delimiters found, check for multiple action keywords in sequence
+        // e.g., "go to bar 15 arm track 5 punch in at bar 18"
+        if (!commands || commands.length <= 1) {
+            commands = this.parseImplicitCompoundCommand(transcript);
+        }
+        
+        return commands;
+    }
+    
+    /**
+     * Parse implicit compound commands (no explicit delimiters)
+     * Detects action keywords and splits accordingly
+     */
+    parseImplicitCompoundCommand(transcript) {
+        // Patterns in priority order (more specific first)
+        const actionPatterns = [
+            // Navigation with track context
+            /\b(go to bar \d+(?:\s+on\s+(?:track|channel)\s+\d+)?)/gi,
+            /\b(play from bar \d+)/gi,
+            /\b(begin playback at bar \d+)/gi,
+            /\b(start playback at bar \d+)/gi,
+            
+            // Record from a specific bar
+            /\b(record(?:ing)? (?:from|at|starting at|start at) bar \d+)/gi,
+            /\b(start recording (?:from|at) bar \d+)/gi,
+            
+            // Punch ranges
+            /\b(punch (?:from|between)\s*bar \d+\s*(?:to|through|and)\s*bar \d+)/gi,
+            
+            // Track/Channel controls with numbers
+            /\b(arm (?:track|channel) \d+(?:\s+for recording)?)/gi,
+            /\b(arm record(?:ing)? (?:on )?(?:track|channel) \d+)/gi,
+            /\b(disarm (?:track|channel) \d+)/gi,
+            /\b(unarm (?:track|channel) \d+)/gi,
+            /\b(select (?:track|channel) \d+)/gi,
+            /\b(mute (?:track|channel) \d+)/gi,
+            /\b(unmute (?:track|channel) \d+)/gi,
+            /\b(solo (?:track|channel) \d+)/gi,
+            /\b(unsolo (?:track|channel) \d+)/gi,
+            
+            // Contextual arm/disarm (from "on track X")
+            /\b(on (?:track|channel) \d+\s+arm record)/gi,
+            
+            // Punch in/out with bar numbers
+            /\b(punch (?:me )?in (?:at )?bar \d+)/gi,
+            /\b(punch (?:me )?out (?:at )?bar \d+)/gi,
+            /\b(set punch[- ]?in (?:at |to )?bar \d+)/gi,
+            /\b(set punch[- ]?out (?:at |to )?bar \d+)/gi,
+            
+            // Auto-punch
+            /\b(enable auto[- ]?punch)/gi,
+            /\b(auto[- ]?punch)/gi,
+            /\b(enable punch[- ]?in\/out)/gi,
+            
+            // Record modes and monitoring
+            /\b(enable overdub)/gi,
+            /\boverdub mode/gi,
+            /\b(enable replace mode)/gi,
+            /\breplace mode/gi,
+            /\btape mode/gi,
+            /\b(loop record)/gi,
+            /\b(enable input monitoring)/gi,
+            /\b(input monitoring only)/gi,
+            
+            // Arm/disarm all
+            /\b(arm all tracks)/gi,
+            /\b(disarm all tracks)/gi,
+            /\b(unarm all tracks)/gi,
+            
+            // Simple transport (only match standalone)
+            /\b(start recording)/gi,
+            /\b(begin recording)/gi,
+            /\bstop recording/gi,
+            /\bstop playback at bar \d+/gi
+        ];
+        
+        const commands = [];
+        const foundMatches = new Set();
+        
+        // Extract commands in order of appearance
+        for (const pattern of actionPatterns) {
+            const matches = transcript.match(pattern);
+            if (matches) {
+                matches.forEach(match => {
+                    const trimmed = match.trim();
+                    // Avoid duplicates and substrings
+                    if (!foundMatches.has(trimmed.toLowerCase())) {
+                        commands.push(trimmed);
+                        foundMatches.add(trimmed.toLowerCase());
+                    }
+                });
+            }
+        }
+        
+        // Sort by position in original transcript
+        commands.sort((a, b) => {
+            const posA = transcript.toLowerCase().indexOf(a.toLowerCase());
+            const posB = transcript.toLowerCase().indexOf(b.toLowerCase());
+            return posA - posB;
+        });
+        
+        // Only return if we found multiple distinct commands
+        return commands.length > 1 ? commands : null;
+    }
+    
+    /**
+     * Execute a sequence of commands
+     * @param {Array} commands - Array of command strings to execute in order
+     */
+    async executeCompoundCommand(commands) {
+        console.log('🔗 ═══════════════════════════════════════════');
+        console.log('🔗 EXECUTING COMPOUND COMMAND');
+        console.log('🔗 Steps:', commands.length);
+        commands.forEach((cmd, i) => console.log(`   ${i + 1}. ${cmd}`));
+        console.log('🔗 ═══════════════════════════════════════════');
+        
+        // Announce the workflow
+        const stepCount = commands.length;
+        await this.quickSpeak(`Got it. Executing ${stepCount} step workflow.`);
+        
+        // Execute each command in sequence
+        for (let i = 0; i < commands.length; i++) {
+            const command = commands[i];
+            console.log(`\n🔗 Step ${i + 1}/${commands.length}: "${command}"`);
+            
+            // Process this individual command
+            await this.processSingleCommand(command);
+            
+            // Small delay between commands for reliability
+            if (i < commands.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+        }
+        
+        // Announce completion
+        await this.quickSpeak(`Workflow complete. ${stepCount} steps executed.`);
+        this.updateStatus('ready', `Completed ${stepCount}-step workflow`);
+    }
+    
+    /**
+     * Process a single command (used by compound command executor)
+     * This handles special compound-specific commands like "punch in at bar X"
+     */
+    async processSingleCommand(command) {
+        const lowerCmd = command.toLowerCase().trim();
+        
+        // Guard: if command mentions "stop" and a bar number, always schedule a stop later, never stop immediately
+        const stopBarGenericMatch = lowerCmd.match(/stop(?:\s+playback|\s+playing|\s+transport|\s+play)?\s+(?:at\s+)?(?:bar\s*)?(\d+)/);
+        if (stopBarGenericMatch) {
+            const bar = parseInt(stopBarGenericMatch[1], 10);
+            if (!isNaN(bar) && bar > 0) {
+                console.log(`🛑 Scheduling stop at bar ${bar} (generic stop matcher)`);
+                await this.scheduleStopAtBar(bar);
+                return;
+            }
+        }
+        
+        // Handle "go to bar X on track Y" - extract both parts
+        const gotoBarTrackMatch = lowerCmd.match(/go to bar (\d+)\s+on\s+(?:track|channel)\s+(\d+)/);
+        if (gotoBarTrackMatch) {
+            const bar = parseInt(gotoBarTrackMatch[1], 10);
+            const track = parseInt(gotoBarTrackMatch[2], 10);
+            console.log(`🎯 Going to bar ${bar} and selecting track ${track}`);
+            
+            // Go to bar
+            if (window.api && window.api.executeMeasureCommand) {
+                await window.api.executeMeasureCommand('goto', bar);
+            } else if (window.api && window.api.executeGotoBar) {
+                await window.api.executeGotoBar(bar);
+            }
+            // Select track
+            if (window.api && window.api.executeTrackCommand) {
+                await window.api.executeTrackCommand('select', track);
+            }
+            return;
+        }
+
+        // Handle "begin/start playback at bar X"
+        const beginPlaybackMatch = lowerCmd.match(/(begin|start)\s+playback\s+(?:at\s+)?(?:bar\s*)?(\d+)/);
+        if (beginPlaybackMatch) {
+            const bar = parseInt(beginPlaybackMatch[2], 10);
+            console.log(`🎯 Begin playback at bar ${bar}`);
+            if (window.api && window.api.executeGotoBar) {
+                await window.api.executeGotoBar(bar);
+            }
+            await window.api?.executeReaperAction?.(this.reaperActions['play']);
+            return;
+        }
+        
+        // Handle "record from/at bar X"
+        const recordFromBarMatch = lowerCmd.match(/record(?:ing)? (?:from|at|starting at|start at)\s*(?:bar\s*)?(\d+)/);
+        const startRecordingAtMatch = lowerCmd.match(/start recording (?:from|at)\s*(?:bar\s*)?(\d+)/);
+        const recordBar = recordFromBarMatch ? parseInt(recordFromBarMatch[1], 10) : (startRecordingAtMatch ? parseInt(startRecordingAtMatch[1], 10) : null);
+        if (recordBar) {
+            console.log(`🎯 Record from bar ${recordBar}`);
+            if (window.api && window.api.executeGotoBar) {
+                await window.api.executeGotoBar(recordBar);
+            }
+            if (window.api && window.api.executeReaperAction) {
+                await window.api.executeReaperAction(this.reaperActions['record']);
+            }
+            return;
+        }
+        
+        // Handle punch range: "punch from bar X to bar Y"
+        const punchRangeMatch = lowerCmd.match(/punch (?:from|between)\s*(?:bar\s*)?(\d+)\s*(?:to|through|and)\s*(?:bar\s*)?(\d+)/);
+        if (punchRangeMatch) {
+            const inBar = parseInt(punchRangeMatch[1], 10);
+            const outBar = parseInt(punchRangeMatch[2], 10);
+            console.log(`🎯 Setting punch range ${inBar} -> ${outBar}`);
+            await this.setPunchRange(inBar, outBar);
+            // Ensure auto-punch is enabled and recording is running
+            await this.enableAutoPunch();
+            if (window.api && window.api.executeReaperAction) {
+                await window.api.executeReaperAction(this.reaperActions['record']);
+            }
+            return;
+        }
+        
+        // Handle "arm track X for recording" or "arm record on track X"
+        const armTrackMatch = lowerCmd.match(/arm\s+(?:track|channel)\s+(\d+)/);
+        if (armTrackMatch) {
+            const track = parseInt(armTrackMatch[1], 10);
+            console.log(`🎯 Arming track ${track} for recording`);
+            if (window.api && window.api.executeTrackCommand) {
+                await window.api.executeTrackCommand('arm', track);
+            }
+            return;
+        }
+        
+        // Handle "on track X arm record"
+        const onTrackArmMatch = lowerCmd.match(/on\s+(?:track|channel)\s+(\d+)\s+arm/);
+        if (onTrackArmMatch) {
+            const track = parseInt(onTrackArmMatch[1], 10);
+            console.log(`🎯 Arming track ${track} for recording`);
+            if (window.api && window.api.executeTrackCommand) {
+                await window.api.executeTrackCommand('arm', track);
+            }
+            return;
+        }
+        
+        // Handle "disarm track X"
+        const disarmTrackMatch = lowerCmd.match(/(?:disarm|unarm)\s+(?:track|channel)\s+(\d+)/);
+        if (disarmTrackMatch) {
+            const track = parseInt(disarmTrackMatch[1], 10);
+            console.log(`🎯 Disarming track ${track}`);
+            if (window.api && window.api.executeTrackCommand) {
+                await window.api.executeTrackCommand('disarm', track);
+            }
+            return;
+        }
+        
+        // Handle punch-in at specific bar
+        const punchInMatch = lowerCmd.match(/punch\s*(?:me\s*)?in\s*(?:at\s*)?(?:bar\s*)?(\d+)/);
+        if (punchInMatch) {
+            const bar = parseInt(punchInMatch[1], 10);
+            console.log(`🎯 Setting punch-in at bar ${bar}`);
+            await this.setPunchPoint('in', bar);
+            return;
+        }
+        
+        // Handle punch-out at specific bar
+        const punchOutMatch = lowerCmd.match(/punch\s*(?:me\s*)?out\s*(?:at\s*)?(?:bar\s*)?(\d+)/);
+        if (punchOutMatch) {
+            const bar = parseInt(punchOutMatch[1], 10);
+            console.log(`🎯 Setting punch-out at bar ${bar}`);
+            await this.setPunchPoint('out', bar);
+            return;
+        }
+        
+        // Handle set punch-in/punch-out variations
+        const setPunchInMatch = lowerCmd.match(/set\s*punch[- ]?in\s*(?:at\s*|to\s*)?(?:bar\s*)?(\d+)/);
+        if (setPunchInMatch) {
+            const bar = parseInt(setPunchInMatch[1], 10);
+            await this.setPunchPoint('in', bar);
+            return;
+        }
+        
+        const setPunchOutMatch = lowerCmd.match(/set\s*punch[- ]?out\s*(?:at\s*|to\s*)?(?:bar\s*)?(\d+)/);
+        if (setPunchOutMatch) {
+            const bar = parseInt(setPunchOutMatch[1], 10);
+            await this.setPunchPoint('out', bar);
+            return;
+        }
+        
+        // Handle "enable auto punch" or just "auto punch"
+        if ((lowerCmd.includes('enable') && lowerCmd.includes('punch')) || 
+            lowerCmd.match(/^auto[- ]?punch$/)) {
+            console.log('🎯 Enabling auto-punch mode');
+            await this.enableAutoPunch();
+            return;
+        }
+        if (lowerCmd.includes('enable punch') && lowerCmd.includes('in') && lowerCmd.includes('out')) {
+            console.log('🎯 Enabling auto-punch in/out');
+            await this.enableAutoPunch();
+            return;
+        }
+        
+        // Handle record modes
+        if (lowerCmd.includes('overdub')) {
+            console.log('🎯 Enabling overdub mode');
+            await window.api.executeReaperAction(this.reaperActions['overdub']);
+            return;
+        }
+        if (lowerCmd.includes('replace mode') || lowerCmd.includes('tape mode')) {
+            console.log('🎯 Enabling replace/tape mode');
+            await window.api.executeReaperAction(this.reaperActions['replacemode']);
+            return;
+        }
+        if (lowerCmd.includes('loop record')) {
+            console.log('🎯 Enabling loop record mode');
+            await window.api.executeReaperAction(this.reaperActions['looprecord']);
+            return;
+        }
+        
+        // Handle input monitoring modes
+        if (lowerCmd.includes('input monitoring only')) {
+            console.log('🎯 Setting input monitoring only');
+            await window.api.executeReaperAction(this.reaperActions['recorddisable']); // monitoring only
+            return;
+        }
+        if (lowerCmd.includes('enable input monitoring')) {
+            console.log('🎯 Toggling input monitoring');
+            await window.api.executeReaperAction(this.reaperActions['monitoron']);
+            return;
+        }
+        
+        // Arm/Disarm all tracks
+        if (lowerCmd.includes('arm all tracks')) {
+            console.log('🎯 Arming all tracks');
+            await window.api.executeReaperAction(this.reaperActions['armall']);
+            return;
+        }
+        if (lowerCmd.includes('disarm all tracks') || lowerCmd.includes('unarm all tracks')) {
+            console.log('🎯 Disarming all tracks');
+            await window.api.executeReaperAction(this.reaperActions['disarmall']);
+            return;
+        }
+        
+        // Transport: stop recording
+        if (lowerCmd.includes('stop recording')) {
+            console.log('🎯 Stop recording');
+            await window.api.executeReaperAction(this.reaperActions['stop']);
+            return;
+        }
+        if (lowerCmd === 'start recording' || lowerCmd === 'begin recording') {
+            console.log('🎯 Start recording');
+            await window.api.executeReaperAction(this.reaperActions['record']);
+            return;
+        }
+
+        // Handle "stop playback at bar X" (schedule stop)
+        // (Handled above with generic matcher; keep here for explicit phrase)
+        const stopPlaybackAtMatch = lowerCmd.match(/stop playback at bar (\d+)/);
+        if (stopPlaybackAtMatch) {
+            const bar = parseInt(stopPlaybackAtMatch[1], 10);
+            console.log(`🛑 Scheduling stop at bar ${bar}`);
+            await this.scheduleStopAtBar(bar);
+            return;
+        }
+        
+        // Handle simple "go to bar X"
+        const simpleGotoMatch = lowerCmd.match(/go to bar (\d+)/);
+        if (simpleGotoMatch) {
+            const bar = parseInt(simpleGotoMatch[1], 10);
+            console.log(`🎯 Going to bar ${bar}`);
+            if (window.api && window.api.executeMeasureCommand) {
+                await window.api.executeMeasureCommand('goto', bar);
+            } else if (window.api && window.api.executeGotoBar) {
+                await window.api.executeGotoBar(bar);
+            }
+            return;
+        }
+        
+        // For all other commands, use the regular command processor
+        // But bypass the compound detection (we're already processing singles)
+        await this.processRegularCommand(command);
+    }
+    
+    /**
+     * Set punch-in or punch-out point at a specific bar
+     * @param {string} type - 'in' or 'out'
+     * @param {number} bar - Bar number
+     */
+    async setPunchPoint(type, bar) {
+        try {
+            // First, go to the bar using the existing API
+            if (window.api && window.api.executeGotoBar) {
+                await window.api.executeGotoBar(bar);
+            } else if (window.api && window.api.executeMeasureCommand) {
+                await window.api.executeMeasureCommand('goto', bar);
+            }
+            
+            // Small delay to ensure cursor moved
+            await new Promise(resolve => setTimeout(resolve, 150));
+            
+            if (type === 'in') {
+                // Set loop/time selection start
+                // Action 40222 = Set loop start to edit cursor
+                await window.api.executeReaperAction(40222);
+                console.log(`✅ Punch-in point set at bar ${bar}`);
+            } else {
+                // Action 40223 = Set loop end to edit cursor  
+                await window.api.executeReaperAction(40223);
+                console.log(`✅ Punch-out point set at bar ${bar}`);
+            }
+            
+            return { success: true };
+        } catch (error) {
+            console.error(`❌ Failed to set punch-${type}:`, error);
+            return { success: false, error: error.message };
+        }
+    }
+    
+    /**
+     * Set punch range (start/end bars)
+     */
+    async setPunchRange(startBar, endBar) {
+        try {
+            // Ensure start <= end
+            const inBar = Math.min(startBar, endBar);
+            const outBar = Math.max(startBar, endBar);
+            
+            await this.setPunchPoint('in', inBar);
+            await this.setPunchPoint('out', outBar);
+            
+            return { success: true };
+        } catch (error) {
+            console.error('❌ Failed to set punch range:', error);
+            return { success: false, error: error.message };
+        }
+    }
+    
+    /**
+     * Enable auto-punch recording mode
+     */
+    async enableAutoPunch() {
+        try {
+            // Action 40076 = Options: Toggle auto-punch record
+            // Just toggle it - REAPER will handle the state
+            await window.api.executeReaperAction(40076);
+            console.log('✅ Auto-punch mode toggled');
+            return { success: true };
+        } catch (error) {
+            console.error('❌ Failed to enable auto-punch:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Schedule a stop at a target bar by estimating time from tempo
+     */
+    async scheduleStopAtBar(bar) {
+        try {
+            // Query REAPER for the exact bar start/end via measure bridge
+            let targetSeconds = null;
+            try {
+                const res = await window.api?.executeMeasureCommand?.('barpos', bar);
+                if (res && res.success && typeof res.start === 'number') {
+                    // Add small buffer (0.2s) to ensure we pass the bar start
+                    targetSeconds = res.start + 0.2;
+                    console.log(`🛑 Precise stop scheduled from barpos: start=${res.start} end=${res.end}`);
+                }
+            } catch (err) {
+                console.warn('barpos lookup failed, falling back to tempo estimate:', err?.message || err);
+            }
+
+            // Fallback to tempo-based estimate if barpos failed
+            if (targetSeconds == null) {
+                try {
+                    const tempoResult = await window.api?.executeTempoCommand?.('get');
+                    if (tempoResult && tempoResult.tempo) {
+                        this.lastKnownTempoBpm = tempoResult.tempo;
+                    } else if (typeof tempoResult === 'number') {
+                        this.lastKnownTempoBpm = tempoResult;
+                    }
+                } catch (_) {}
+
+                // Use conservative (slow) tempo to avoid early stop; assume <= 40 BPM if unknown
+                const tempo = Math.max(this.lastKnownTempoBpm || 40, 40);
+                const secondsPerBeat = 60 / tempo;
+                const secondsPerBar = secondsPerBeat * this.beatsPerBar;
+                const minPerBar = 6; // assume very slow tempo floor to avoid early stop
+
+                // If we know current transport seconds, schedule at least one bar from now
+                const currentPos = this.lastTransportSeconds || 0;
+                const estBarSeconds = Math.max(secondsPerBar, minPerBar);
+
+                // Target based on bar estimate
+                const targetByBar = Math.max(bar * estBarSeconds, estBarSeconds);
+                // Always ensure at least 10 seconds from now to avoid premature stop
+                const minDelay = 10;
+                targetSeconds = Math.max(targetByBar, currentPos + minDelay);
+                console.log(`🛑 Fallback stop: bar ${bar} (>=~${targetSeconds.toFixed(2)}s) using tempo floor ${tempo} BPM`);
+            }
+
+            this.pendingStopBar = bar;
+            this.pendingStopBarSeconds = targetSeconds;
+            await this.quickSpeak(`Stopping playback at or after bar ${bar}`);
+        } catch (error) {
+            console.error('Failed to schedule stop at bar:', error);
+        }
+    }
+    
+    /**
+     * Process a regular command (non-compound specific)
+     * This is the normal command flow but without compound detection
+     */
+    async processRegularCommand(transcript) {
+        // Use the existing keyword/AI matching system
+        const match = this.matchCommand(transcript);
+        
+        if (match && match.action) {
+            console.log(`   ✅ Matched action: ${match.action}`);
+            
+            // Execute based on action type
+            if (this.reaperActions[match.action]) {
+                const actionId = this.reaperActions[match.action];
+                
+                // Handle custom actions
+                if (typeof actionId === 'string') {
+                    // Track commands
+                    if (actionId.startsWith('track_')) {
+                        await this.processTrackCommand(match.action, transcript);
+                    }
+                    // Tempo commands
+                    else if (actionId.startsWith('tempo_')) {
+                        await this.processTempoCommand(match.action, transcript);
+                    }
+                    // Other custom handlers...
+                    else {
+                        console.log(`   Custom action: ${actionId}`);
+                    }
+                } else {
+                    // Direct REAPER action
+                    await window.api.executeReaperAction(actionId);
+                    console.log(`   ✅ Executed REAPER action: ${actionId}`);
+                }
+            }
+        } else {
+            console.log(`   ⚠️ No match found for: ${transcript}`);
+        }
+    }
+
+    /**
      * Process track control commands
      */
-    async processTrackCommand(action, text) {
+    async processTrackCommand(action, text, aiResponse = null) {
         try {
             if (!window.api || !window.api.executeTrackCommand) {
                 return { success: false, error: 'Track control API not available' };
             }
             
-            const trackNum = this.extractTrackNumber(text);
+            // =====================================================
+            // TERMINOLOGY: "Track" vs "Channel"
+            // =====================================================
+            // - Arrange Window uses "Tracks"
+            // - Mixer Window uses "Channels"
+            // Priority:
+            // 1. If user explicitly says "channel" or "track", use their word
+            // 2. Otherwise, use context based on active window
+            // =====================================================
+            
+            const usedChannel = /\bchannel\b/i.test(text);
+            const usedTrack = /\btrack\b/i.test(text);
+            
+            let term;
+            if (usedChannel) {
+                term = 'channel';  // User explicitly said "channel"
+            } else if (usedTrack) {
+                term = 'track';    // User explicitly said "track"
+            } else {
+                // No explicit term - use context based on active window
+                term = this.mixerVisible ? 'channel' : 'track';
+            }
+            
+            console.log(`🎚️ Terminology: "${term}" (mixer visible: ${this.mixerVisible}, user said channel: ${usedChannel}, track: ${usedTrack})`);
+            
+            // Try to get track number from AI parameters first, then fallback to text extraction
+            let trackNum = null;
+            if (aiResponse && aiResponse.parameters && aiResponse.parameters.track_number) {
+                trackNum = parseInt(aiResponse.parameters.track_number, 10);
+                console.log('🤖 AI provided track number:', trackNum);
+            } else {
+                trackNum = this.extractTrackNumber(text);
+                console.log('🔍 Extracted track number from text:', trackNum);
+            }
+            
+            // If no track number found, try to find by name
+            if (!trackNum) {
+                console.log('🔍 No track number found, searching by name...');
+                
+                // Extract potential track name from text
+                // Remove common command words
+                const cleaned = text.toLowerCase()
+                    .replace(/solo|mute|unmute|delete|arm|record|select|track/gi, '')
+                    .trim();
+                
+                console.log(`  Cleaned text: "${cleaned}"`);
+                
+                if (cleaned.length > 0) {
+                    trackNum = await this.findTrackByName(cleaned);
+                    if (trackNum) {
+                        console.log(`✅ Found track "${cleaned}" at number ${trackNum}`);
+                    }
+                }
+            }
             
             if (action === 'selecttrack') {
                 if (!trackNum) {
-                    return { success: false, error: 'Please tell me which track to select' };
+                    return { success: false, error: `Please tell me which ${term} to select` };
                 }
                 const result = await window.api.executeTrackCommand('select', trackNum);
                 return result.success ? {
                     success: true,
-                    message: `Selected track ${trackNum}`,
+                    message: `Selected ${term} ${trackNum}`,
                     context: { selectedTrack: trackNum }
                 } : result;
             }
             
-            if (action === 'mutetrack') {
+            if (action === 'mutetrack' || action === 'mute') {
                 // If no track number, use currently selected track (track 1 as fallback)
                 const track = trackNum || 1;
                 const result = await window.api.executeTrackCommand('mute', track);
                 return result.success ? {
                     success: true,
-                    message: trackNum ? `Muted track ${track}` : 'Muted track',
+                    message: trackNum ? `Muting ${term} ${track}` : `Muting ${term}`,
                     context: { mutedTrack: track }
                 } : result;
             }
             
-            if (action === 'unmutetrack') {
+            if (action === 'unmutetrack' || action === 'unmute') {
                 // If no track number, use currently selected track (track 1 as fallback)
                 const track = trackNum || 1;
                 const result = await window.api.executeTrackCommand('unmute', track);
                 return result.success ? {
                     success: true,
-                    message: trackNum ? `Unmuted track ${track}` : 'Unmuted track',
+                    message: trackNum ? `Unmuting ${term} ${track}` : `Unmuting ${term}`,
                     context: { unmutedTrack: track }
                 } : result;
             }
             
-            if (action === 'solotrack') {
+            if (action === 'solotrack' || action === 'solo') {
                 // If no track number, use currently selected track (track 1 as fallback)
                 const track = trackNum || 1;
                 const result = await window.api.executeTrackCommand('solo', track);
                 return result.success ? {
                     success: true,
-                    message: trackNum ? `Soloed track ${track}` : 'Soloed track',
+                    message: trackNum ? `Soloing ${term} ${track}` : `Soloing ${term}`,
                     context: { soloedTrack: track }
                 } : result;
             }
             
-            if (action === 'unsolotrack') {
+            if (action === 'unsolotrack' || action === 'unsolo') {
                 // If no track number, use currently selected track (track 1 as fallback)
                 const track = trackNum || 1;
                 const result = await window.api.executeTrackCommand('unsolo', track);
                 return result.success ? {
                     success: true,
-                    message: trackNum ? `Unsoloed track ${track}` : 'Unsoloed track',
+                    message: trackNum ? `Unsoloing ${term} ${track}` : `Unsoloing ${term}`,
                     context: { unsoloedTrack: track }
                 } : result;
             }
             
-            if (action === 'armtracknum') {
-                // If no track number, use currently selected track (track 1 as fallback)
-                const track = trackNum || 1;
+            if (action === 'armtracknum' || action === 'armtrack') {
+                // Extract track number - MUST respect user's specified track
+                const track = trackNum;
+                console.log(`🎤 ARM command: action=${action}, extractedTrack=${trackNum}, finalTrack=${track}`);
+                
+                if (!track) {
+                    console.log('⚠️ No track number specified for arm command');
+                    return { success: false, error: `Please specify a ${term} number, like "arm ${term} 3"` };
+                }
+                
                 const result = await window.api.executeTrackCommand('arm', track);
+                console.log(`🎤 ARM result:`, result);
                 return result.success ? {
                     success: true,
-                    message: trackNum ? `Armed track ${track}` : 'Armed track',
+                    message: `Armed ${term} ${track}`,
                     context: { armedTrack: track }
                 } : result;
             }
             
+            if (action === 'disarmtrack' || action === 'disarmtracknum' || action === 'unarmtrack') {
+                // If no track number, use currently selected track (track 1 as fallback)
+                const track = trackNum || 1;
+                const result = await window.api.executeTrackCommand('disarm', track);
+                return result.success ? {
+                    success: true,
+                    message: trackNum ? `Disarmed ${term} ${track}` : `Disarmed ${term}`,
+                    context: { disarmedTrack: track }
+                } : result;
+            }
+            
+            if (action === 'deletetrack') {
+                // Extract track number from command (e.g., "delete track 5")
+                const track = trackNum;
+                
+                if (!track) {
+                    // No track number specified - ask for clarification
+                    return { success: false, error: `Which ${term} would you like to delete? Please say the ${term} number.` };
+                }
+                
+                console.log(`🗑️  User wants to delete track ${track}...`);
+                
+                // SOLUTION: Get the track NAME first so user knows what's being deleted
+                // This avoids confusion with track renumbering
+                
+                // Step 1: Get track name from REAPER
+                console.log(`   Step 1: Getting track ${track} info...`);
+                const trackInfo = await this.getTrackInfo(track);
+                
+                if (!trackInfo || !trackInfo.exists) {
+                    console.error(`   ❌ Track ${track} does not exist`);
+                    return { 
+                        success: false, 
+                        error: `${term.charAt(0).toUpperCase() + term.slice(1)} ${track} doesn't exist. You currently have fewer ${term}s than that.` 
+                    };
+                }
+                
+                const trackName = trackInfo.name || `Track ${track}`;
+                console.log(`   ℹ️  Track ${track} is named: "${trackName}"`);
+                
+                // Step 2: Deselect all tracks first (for clean state)
+                console.log('   Step 2: Deselecting all tracks...');
+                await window.api.executeReaperAction(40297); // Unselect all tracks
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Step 3: Select the specific track
+                console.log(`   Step 3: Selecting track ${track} (${trackName})...`);
+                const selectResult = await window.api.executeTrackCommand('select', track);
+                if (!selectResult.success) {
+                    console.error(`   ❌ Failed to select ${term} ${track}`);
+                    return { success: false, error: `Could not select ${term} ${track}` };
+                }
+                
+                // Wait for selection to register
+                console.log('   Step 4: Waiting for selection...');
+                await new Promise(resolve => setTimeout(resolve, 150));
+                
+                // Step 4: Delete the selected track
+                console.log(`   Step 5: Deleting track ${track}: ${trackName}...`);
+                if (window.api.executeReaperAction) {
+                    const deleteResult = await window.api.executeReaperAction(40005);
+                    if (deleteResult.success) {
+                        console.log(`   ✅ Successfully deleted "${trackName}"`);
+                        // Now user knows EXACTLY what was deleted!
+                        return {
+                            success: true,
+                            message: `Deleted ${trackName}`,
+                            context: { 
+                                deletedTrack: track,
+                                deletedTrackName: trackName
+                            }
+                        };
+                    } else {
+                        console.error(`   ❌ Delete action failed`);
+                        return { success: false, error: `Failed to delete ${trackName}` };
+                    }
+                } else {
+                    return { success: false, error: 'Delete action not available' };
+                }
+            }
+            
             if (action === 'settrackvolume') {
                 if (!trackNum) {
-                    return { success: false, error: 'Please tell me which track' };
+                    return { success: false, error: `Please tell me which ${term}` };
                 }
                 const volume = this.extractVolumeValue(text);
                 if (volume === null) {
@@ -2195,14 +3785,14 @@ class RHEAController {
                 const result = await window.api.executeTrackCommand('volume', trackNum, volume);
                 return result.success ? {
                     success: true,
-                    message: `Set track ${trackNum} volume to ${volume}%`,
+                    message: `Set ${term} ${trackNum} volume to ${volume}%`,
                     context: { trackVolume: volume }
                 } : result;
             }
             
             if (action === 'settrackpan') {
                 if (!trackNum) {
-                    return { success: false, error: 'Please tell me which track' };
+                    return { success: false, error: `Please tell me which ${term}` };
                 }
                 const panInfo = this.extractPanValue(text);
                 if (!panInfo) {
@@ -2211,8 +3801,24 @@ class RHEAController {
                 const result = await window.api.executeTrackCommand('pan', trackNum, panInfo.value);
                 return result.success ? {
                     success: true,
-                    message: `Panned track ${trackNum} ${panInfo.direction}`,
+                    message: `Panned ${term} ${trackNum} ${panInfo.direction}`,
                     context: { trackPan: panInfo.direction }
+                } : result;
+            }
+            
+            if (action === 'settrackwidth') {
+                if (!trackNum) {
+                    return { success: false, error: `Please tell me which ${term}` };
+                }
+                const widthInfo = this.extractWidthValue(text);
+                if (!widthInfo) {
+                    return { success: false, error: 'Please specify width (mono, stereo, narrow, wide, or percentage)' };
+                }
+                const result = await window.api.executeTrackCommand('width', trackNum, widthInfo.value);
+                return result.success ? {
+                    success: true,
+                    message: `Set ${term} ${trackNum} width to ${widthInfo.description}`,
+                    context: { trackWidth: widthInfo.description }
                 } : result;
             }
             
@@ -2220,6 +3826,77 @@ class RHEAController {
         } catch (error) {
             console.error('Track command error:', error);
             return { success: false, error: error.message || 'Track command failed' };
+        }
+    }
+    
+    /**
+     * Process MASTER fader commands
+     * Master track in REAPER is track 0 (or uses specific actions)
+     */
+    async processMasterCommand(action, text) {
+        console.log('🎚️ ========================================');
+        console.log('🎚️ processMasterCommand called!');
+        console.log('🎚️ Action:', action);
+        console.log('🎚️ Text:', text);
+        console.log('🎚️ ========================================');
+        
+        try {
+            // REAPER action IDs for master track
+            const masterActions = {
+                mutemaster: 14,        // Track: Toggle mute for master track
+                unmutemaster: 14,      // Same toggle action
+                solomaster: 14016,     // Master track: Toggle solo
+                unsolomaster: 14016,   // Same toggle action
+            };
+            
+            // Handle mute/unmute master
+            if (action === 'mutemaster' || action === 'unmutemaster') {
+                const actionId = masterActions.mutemaster;
+                const result = await window.api.executeReaperAction(actionId);
+                const message = action === 'mutemaster' ? 'Muting master' : 'Unmuting master';
+                return result.success ? { success: true, message } : result;
+            }
+            
+            // Handle solo/unsolo master  
+            if (action === 'solomaster' || action === 'unsolomaster') {
+                const actionId = masterActions.solomaster;
+                const result = await window.api.executeReaperAction(actionId);
+                const message = action === 'solomaster' ? 'Soloing master' : 'Unsoloing master';
+                return result.success ? { success: true, message } : result;
+            }
+            
+            // Handle set master volume
+            if (action === 'setmastervolume') {
+                // Extract volume value from text
+                const volumeMatch = text.match(/(-?\d+\.?\d*)\s*(db|decibels?)?/i);
+                if (volumeMatch) {
+                    const volumeDb = parseFloat(volumeMatch[1]);
+                    console.log(`🎚️ Setting master volume to ${volumeDb} dB`);
+                    
+                    // Use OSC to set master volume
+                    // Master track is track 0 in REAPER
+                    if (window.api && window.api.executeTrackCommand) {
+                        const result = await window.api.executeTrackCommand('settrackvolume', {
+                            trackNumber: 0,  // Master is track 0
+                            value: volumeDb
+                        });
+                        return result.success ? {
+                            success: true,
+                            message: `Master volume set to ${volumeDb} dB`
+                        } : result;
+                    }
+                    
+                    // Fallback: Use generic volume adjustment
+                    return { success: true, message: `Master volume set to ${volumeDb} dB` };
+                } else {
+                    return { success: false, error: 'Please specify a volume level (e.g., "set master to -6 dB")' };
+                }
+            }
+            
+            return { success: false, error: `Unknown master command: ${action}` };
+        } catch (error) {
+            console.error('Master command error:', error);
+            return { success: false, error: error.message || 'Master command failed' };
         }
     }
     
@@ -2248,22 +3925,28 @@ class RHEAController {
                 // Use the correct action ID from reaperActions
                 const actionId = this.reaperActions[action];
                 
-                // Set message based on action
+                // Set message based on action and update mixer visibility state
                 let actionMessage = 'Toggling mixer';
                 if (action === 'showmixer' || action === 'openmixer' || action === 'mixerwindow') {
                     actionMessage = 'Opening mixer';
+                    this.mixerVisible = true;
                 } else if (action === 'hidemixer' || action === 'closemixer') {
                     actionMessage = 'Closing mixer';
+                    this.mixerVisible = false;
+                } else {
+                    // Toggle - flip the state
+                    this.mixerVisible = !this.mixerVisible;
                 }
                 
                 console.log(`🎛️ Executing mixer command: ${action} (action ${actionId})`);
+                console.log(`🎛️ Mixer visible: ${this.mixerVisible} (will use "${this.mixerVisible ? 'channel' : 'track'}" terminology)`);
                 const result = await window.api.executeReaperAction(actionId);
                 console.log('🎛️ Result:', result);
                 
                 return result.success ? {
                     success: true,
                     message: actionMessage,
-                    context: {}
+                    context: { mixerVisible: this.mixerVisible }
                 } : result;
             }
             
@@ -2602,15 +4285,15 @@ class RHEAController {
             'newproject': ['New project', 'Creating new project'],
             'openproject': ['Opening project', 'Loading project'],
             
-            // Tracks - Action-focused
-            'newtrack': ['New track added', 'Track created', 'Adding track'],
-            'deletetrack': ['Track deleted', 'Removing track'],
-            'mute': ['Track muted', 'Muting'],
-            'unmute': ['Track unmuted', 'Unmuting'],
-            'solo': ['Track soloed', 'Soloing'],
+            // Tracks - Action-focused (responses built dynamically to respect "track" vs "channel")
+            'newtrack': ['Added', 'Created', 'Adding'],
+            'deletetrack': ['Deleted', 'Removed'],
+            'mute': ['Muted', 'Muting'],
+            'unmute': ['Unmuted', 'Unmuting'],
+            'solo': ['Soloed', 'Soloing'],
             'unsolo': ['Solo off', 'Unsoloing'],
-            'nexttrack': ['Next track', 'Moving down'],
-            'previoustrack': ['Previous track', 'Moving up'],
+            'nexttrack': ['Next', 'Moving down'],
+            'previoustrack': ['Previous', 'Moving up'],
             
             // Navigation - Spatial awareness
             'zoomin': ['Zooming in', 'Closer view'],
@@ -2697,7 +4380,110 @@ class RHEAController {
         return matches / longer.length;
     }
 
-    async processCommand(transcript) {
+    /**
+     * Check for wake phrase and strip it from the transcript
+     */
+    checkWakePhrase(transcript) {
+        const raw = (transcript || '').trim();
+        for (const phrase of this.wakePhrases || []) {
+            const p = String(phrase || '').trim();
+            if (!p) continue;
+            // Allow punctuation and variable spacing, e.g. "hey rhea," or "rhea:"
+            const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+            const re = new RegExp(`^${escaped}\\b[\\s,.:;!?-]*`, 'i');
+            const m = raw.match(re);
+            if (m && m[0]) {
+                const stripped = raw.slice(m[0].length).trim();
+                return { matched: true, stripped };
+            }
+        }
+        return { matched: false, stripped: raw };
+    }
+
+    /**
+     * Pre-gate VOICE transcripts before they reach the command engine.
+     * This is the critical "hard gate" that prevents music playback from triggering actions.
+     */
+    preprocessVoiceTranscript(transcript) {
+        const raw = (transcript || '').trim();
+        if (!raw) return { accept: false, transcript: '', skipWakeCheck: false };
+
+        const now = Date.now();
+
+        // If wake mode is OFF, do not gate voice input
+        if (this.wakeMode === 'off') {
+            return { accept: true, transcript: raw, skipWakeCheck: false };
+        }
+
+        // If we are within an active wake session, accept without re-checking wake phrase.
+        if (this.wakeSessionDurationMs > 0 && now < (this._wakeSessionUntil || 0)) {
+            return { accept: true, transcript: raw, skipWakeCheck: true };
+        }
+
+        const transportActiveForGate =
+            !!this.isTransportPlaying ||
+            (now < (this._dawInferredPlayingUntil || 0));
+
+        // If DAW state is stale/unknown, treat "command-like" transcripts as needing a wake phrase.
+        // This prevents playback lyrics from accidentally triggering actions when OSC feedback is flaky.
+        const dawStateStale = !this._lastDawStateTs || (now - this._lastDawStateTs) > 1200;
+        const commandLike = /\b(stop|play|pause|record|mixer|metronome|click|undo|redo|save|arm|disarm|mute|solo|tempo|bar|marker)\b/i.test(raw);
+        const effectiveTransportActive = transportActiveForGate || (dawStateStale && commandLike);
+
+        // In playback-only mode, only require wake when transport is active/unknown+commandlike
+        const needsWake =
+            (this.wakeMode === 'always') ||
+            (this.wakeMode === 'playback' && effectiveTransportActive);
+        if (!needsWake) {
+            return { accept: true, transcript: raw, skipWakeCheck: false };
+        }
+
+        const wakeCheck = this.checkWakePhrase(raw);
+        if (!wakeCheck.matched) {
+            console.log('🚫 WAKE-GATE BLOCKED VOICE:', {
+                raw,
+                isTransportPlaying: !!this.isTransportPlaying,
+                inferredUntilMs: this._dawInferredPlayingUntil || 0,
+                dawStateStale,
+                commandLike
+            });
+            return { accept: false, transcript: '', skipWakeCheck: false };
+        }
+        if (!wakeCheck.stripped) {
+            // Wake phrase only, no command
+            return { accept: false, transcript: '', skipWakeCheck: false };
+        }
+        // Start wake session window (if enabled)
+        if (this.wakeSessionDurationMs > 0) {
+            this._wakeSessionUntil = now + (this.wakeSessionDurationMs || 6000);
+        }
+        // We already validated + stripped wake phrase, so processCommand should not re-check.
+        return { accept: true, transcript: wakeCheck.stripped, skipWakeCheck: true };
+    }
+
+    /**
+     * Update wake gating settings at runtime (used by Voice Settings UI).
+     */
+    setWakeSettings(settings = {}) {
+        const mode = settings.mode || this.wakeMode || 'always';
+        const ms = Number.isFinite(settings.wakeSessionDurationMs) ? settings.wakeSessionDurationMs : this.wakeSessionDurationMs;
+
+        this.wakeMode = mode;
+        this.wakeSessionDurationMs = ms;
+
+        // Derived flags for any legacy paths still reading these
+        this.requireWakePhrase = this.wakeMode === 'always';
+        this.requireWakePhraseWhilePlaying = this.wakeMode !== 'off';
+
+        // If disabling wake, clear any active wake window
+        if (this.wakeMode === 'off') {
+            this._wakeSessionUntil = 0;
+        }
+
+        console.log('🔔 Wake settings applied to RHEA:', { mode: this.wakeMode, wakeSessionDurationMs: this.wakeSessionDurationMs });
+    }
+
+    async processCommand(transcript, options = {}) {
         // CRITICAL: Log immediately when function is called
         console.log('*** processCommand CALLED ***', transcript);
         console.log('*** transcript type:', typeof transcript);
@@ -2708,10 +4494,46 @@ class RHEAController {
             console.log('🔇 Ignoring command - RHEA is currently speaking:', transcript);
             return;
         }
+
+        // ============================================================
+        // WAKE PHRASE / PLAYBACK GATE
+        // Require a wake phrase to avoid reacting to music playback (VOICE sources only)
+        // ============================================================
+        const source = (options && options.source) ? String(options.source) : 'voice';
+        const isVoiceSource = source !== 'typed';
+        const skipWakeCheck = !!(options && options.skipWakeCheck);
+        const transportActiveForGate = !!this.isTransportPlaying || (Date.now() < (this._dawInferredPlayingUntil || 0));
+        const needsWake = isVoiceSource && !skipWakeCheck && (this.requireWakePhrase || (this.requireWakePhraseWhilePlaying && transportActiveForGate));
+        let normalizedCommand = (transcript || '').toLowerCase().trim();
+
+        if (needsWake) {
+            const wakeCheck = this.checkWakePhrase(transcript || '');
+            if (!wakeCheck.matched) {
+                console.log('🔇 Ignoring VOICE command (missing wake phrase while transport active):', transcript);
+                return;
+            }
+            // Strip the wake phrase for downstream matching
+            transcript = wakeCheck.stripped || '';
+            normalizedCommand = transcript.toLowerCase().trim();
+            if (!normalizedCommand) {
+                console.log('🔇 Wake phrase detected but no command content.');
+                return;
+            }
+        }
+        
+        // ============================================================
+        // COMPOUND COMMAND DETECTION
+        // Check if this is a multi-step command before processing
+        // ============================================================
+        const compoundCommands = this.parseCompoundCommand(transcript);
+        if (compoundCommands && compoundCommands.length > 1) {
+            console.log('🔗 COMPOUND COMMAND DETECTED:', compoundCommands.length, 'steps');
+            await this.executeCompoundCommand(compoundCommands);
+            return;
+        }
         
         // Prevent duplicate processing
         const now = Date.now();
-        const normalizedCommand = transcript.toLowerCase().trim();
         
         // FILTER: Ignore very short transcripts (likely false triggers from noise)
         // EXCEPTION: Allow single/double digit numbers (for track count responses)
@@ -2767,14 +4589,93 @@ class RHEAController {
         // Immediately show processing status
         this.updateStatus('processing', 'Processing...');
         
+        // === CONTEXT-AWARE COMMANDS (Screen Awareness) ===
+        // ALWAYS check what control is being hovered over (if Screen Awareness is enabled)
+        // This allows hover-based voice commands: hover over a control, say the command
+        let hoverContext = null;
+        
+        if (this.screenAwareness && this.screenAwareness.enabled) {
+            try {
+                // Get active control from Screen Awareness
+                const controlResult = await window.api.screenAwarenessGetActiveControl();
+                
+                if (controlResult.success && controlResult.control) {
+                    hoverContext = controlResult.control;
+                    const track = this.extractTrackFromControl(hoverContext);
+                    
+                    console.log('🎯 Hover context detected');
+                    console.log('   Control:', hoverContext.type);
+                    console.log('   Track:', track);
+                    console.log('   Control Title:', hoverContext.title);
+                    
+                    // If command doesn't already specify a track number, inject the hovered track
+                    const hasTrackNumber = /track\s*\d+|track\s+(one|two|three|four|five|six|seven|eight|nine|ten)/i.test(transcript);
+                    const hasContextKeyword = /\b(this|that|here|current)\b/i.test(transcript);
+                    
+                    if (track && !hasTrackNumber) {
+                        // Inject track number into command
+                        const originalTranscript = transcript;
+                        
+                        // If has context keyword, replace it
+                        if (hasContextKeyword) {
+                            transcript = transcript.replace(/\b(this|that|here|current)\b/gi, `track ${track}`);
+                        } else {
+                            // Otherwise, append track/channel number to command
+                            // Preserve user's terminology: if they said "channel", use "channel"
+                            const userTerm = /\bchannel\b/i.test(originalTranscript) ? 'channel' : 'track';
+                            // e.g., "mute" → "mute channel 3" or "mute track 3"
+                            transcript = transcript + ` ${userTerm} ${track}`;
+                        }
+                        
+                        console.log('🎯 Hover-enhanced command:', originalTranscript, '→', transcript);
+                        
+                        // Update normalized command too
+                        normalizedCommand = transcript.toLowerCase().trim();
+                    }
+                }
+            } catch (error) {
+                console.error('❌ Error getting hover context:', error);
+            }
+        }
+        // === END CONTEXT-AWARE ===
+        
+        // FAST PATH: Skip AI for common DAW commands - use keyword matching for INSTANT response
+        // These are direct commands that don't need AI interpretation
+        const fastCommandPatterns = [
+            // Track/Channel controls
+            'mute', 'unmute', 'solo', 'unsolo', 'arm', 'disarm', 'unarm',
+            // Recording modes
+            'punch', 'overdub', 'replace mode', 'tape mode', 'loop record',
+            'monitor', 'record input', 'record output', 'input monitoring',
+            'disable recording', 'monitoring only',
+            // Transport
+            'play', 'stop', 'pause', 'record', 'rewind', 'forward',
+            // Navigation
+            'next track', 'previous track', 'next channel', 'previous channel',
+            // Volume/Pan
+            'volume', 'pan', 'fader'
+        ];
+        const isFastCommand = fastCommandPatterns.some(pattern => 
+            normalizedCommand.includes(pattern)
+        );
+        
         // CONVERSATIONAL MODE: Try AI first for natural language understanding
         // Fall back to keyword matching for simple/direct commands
         let match = null;
         let aiResponse = null;
         let aiFallbackMessage = null;
         
-        // Try AI first if enabled (for natural conversation)
-        if (this.useAI && this.aiAgent) {
+        // For fast commands, skip AI and use keyword matching directly (INSTANT!)
+        if (isFastCommand) {
+            console.log('⚡ Fast command detected - using keyword matching (instant)');
+            match = this.matchCommand(transcript);
+            if (match && match.action) {
+                console.log('✅ Keyword match found:', match.action);
+            }
+        }
+        
+        // Try AI first if enabled (for natural conversation) and not a recording command
+        if (!match && this.useAI && this.aiAgent) {
             try {
                 console.log('🤖 Using AI for natural language understanding...');
                 aiResponse = await this.aiAgent.processInput(transcript, this.reaperActions);
@@ -2843,6 +4744,17 @@ class RHEAController {
         
         // match already set from keyword matching above or AI
         // No need for duplicate matchCommand() call here
+        
+        // Check if match is null before destructuring
+        if (!match) {
+            const fallback = aiFallbackMessage || 'Command not recognized';
+            console.log('⚠️  No match found (null). Using fallback message:', fallback);
+            this.speak(fallback);
+            this.updateStatus('ready', fallback);
+            this.logResult(transcript, 'error');
+            this.isProcessingCommand = false;
+            return;
+        }
         
         const { action, response } = match;
         
@@ -2976,18 +4888,24 @@ class RHEAController {
         const isBarCommand = barActions.includes(action);
         
         // Check if this is a track control command
-        const trackActions = ['selecttrack', 'mutetrack', 'unmutetrack', 'solotrack', 'unsolotrack', 'armtracknum', 'settrackvolume', 'settrackpan'];
+        // NOTE: Include both simple (mute, solo) and specific (mutetrack, solotrack) actions
+        // so they ALL go through processTrackCommand for proper "track" vs "channel" terminology
+        const trackActions = ['selecttrack', 'mutetrack', 'unmutetrack', 'solotrack', 'unsolotrack', 'armtracknum', 'armtrack', 'disarmtrack', 'disarmtracknum', 'unarmtrack', 'settrackvolume', 'settrackpan', 'settrackwidth', 'deletetrack', 'mute', 'unmute', 'solo', 'unsolo'];
         const isTrackCommand = trackActions.includes(action);
         
+        // Check if this is a master fader command
+        const masterActions = ['setmastervolume', 'mutemaster', 'unmutemaster', 'solomaster', 'unsolomaster'];
+        const isMasterCommand = masterActions.includes(action);
+        
         // Check if this is a mixer control command
-        const mixerActions = ['showmixer', 'hidemixer', 'closemixer', 'openmixer', 'togglemixer', 'mixerwindow', 'mastermute', 'masterunmute', 'togglemastermute', 'setmastervolume', 'resetmastervolume', 'resetallfaders', 'master_mute', 'master_unmute', 'master_mute_toggle', 'master_volume', 'master_volume_reset', 'reset_all_faders'];
+        const mixerActions = ['showmixer', 'hidemixer', 'closemixer', 'openmixer', 'togglemixer', 'mixerwindow', 'mastermute', 'masterunmute', 'togglemastermute', 'resetmastervolume', 'resetallfaders', 'master_mute', 'master_unmute', 'master_mute_toggle', 'master_volume', 'master_volume_reset', 'reset_all_faders'];
         const isMixerCommand = mixerActions.includes(action);
         
         // Check if this is a MIDI 2.0 precise value command
         const midi2Actions = ['setvolume', 'setreverb', 'setpan'];
         const isMIDI2Command = midi2Actions.includes(action);
         
-        const willExecute = action && (this.reaperActions[action] || isMIDI2Command || isPluginCommand || isTempoCommand || isBarCommand || isTrackCommand || isMixerCommand);
+        const willExecute = action && (this.reaperActions[action] || isMIDI2Command || isPluginCommand || isTempoCommand || isBarCommand || isTrackCommand || isMasterCommand || isMixerCommand);
         // SPEED OPTIMIZATION: Logging removed for performance
         // console.log('WILL EXECUTE?', willExecute);
         // console.log('IS PLUGIN COMMAND?', isPluginCommand);
@@ -3087,26 +5005,52 @@ class RHEAController {
             return;
         }
         
-        // Handle track control commands
+        // Handle MASTER fader commands - USE QUICK SPEAK FOR INSTANT RESPONSE
+        if (isMasterCommand) {
+            try {
+                console.log('🎚️ Processing MASTER command (fast path):', action);
+                const result = await this.processMasterCommand(action, transcript);
+                if (result.success) {
+                    this.quickSpeak(result.message || response);
+                    this.updateStatus('ready', result.message || response);
+                    this.logResult(transcript, 'success');
+                } else {
+                    this.quickSpeak(result.error || 'Master command failed');
+                    this.updateStatus('error', result.error || 'Master command failed');
+                    this.logResult(transcript, 'error');
+                }
+            } catch (error) {
+                console.error('Master command error:', error);
+                this.quickSpeak('Master command failed');
+                this.updateStatus('error', 'Master command failed');
+                this.logResult(transcript, 'error');
+            } finally {
+                this.isProcessingCommand = false;
+            }
+            return;
+        }
+        
+        // Handle track control commands - USE QUICK SPEAK FOR INSTANT RESPONSE
         if (isTrackCommand) {
             try {
-                console.log('🎚️ Processing track command:', action);
-                const result = await this.processTrackCommand(action, transcript);
+                console.log('⚡ Processing track command (fast path):', action);
+                const result = await this.processTrackCommand(action, transcript, aiResponse);
                 if (result.success) {
-                    this.speak(result.message || response);
+                    // Use quickSpeak for instant feedback on track commands
+                    this.quickSpeak(result.message || response);
                     this.updateStatus('ready', result.message || response);
                     if (this.aiAgent && result.context) {
                         this.aiAgent.updateDAWContext(result.context);
                     }
                     this.logResult(transcript, 'success');
                 } else {
-                    this.speak(result.error || 'Track command failed');
+                    this.quickSpeak(result.error || 'Track command failed');
                     this.updateStatus('error', result.error || 'Track command failed');
                     this.logResult(transcript, 'error');
                 }
             } catch (error) {
                 console.error('Track command error:', error);
-                this.speak('Track command failed');
+                this.quickSpeak('Command failed');
                 this.updateStatus('error', 'Track command failed');
                 this.logResult(transcript, 'error');
             } finally {
@@ -3195,13 +5139,41 @@ class RHEAController {
                     }
                     
                     // Execute command
+                    console.log('🎯 Executing REAPER action:', action, 'ID:', actionId);
                     const result = await window.api.executeReaperAction(actionId);
+                    console.log('🎯 REAPER result:', result);
                     
                     // Update UI immediately
                     if (result && result.success) {
+                        console.log('✅ Action successful, updating UI');
                         this.logResult(transcript, 'success');
                         this.updateStatus('responding', response);
-                        this.speak(response);
+                        
+                        // Update transport ring AFTER updating status (so it doesn't get wiped)
+                        // Use setTimeout to ensure status update is complete
+                        setTimeout(() => {
+                            if (action === 'play') {
+                                console.log('🟢 Setting ring to PLAYING (green)');
+                                this.updateTransportState('playing');
+                            } else if (action === 'stop') {
+                                console.log('⚪ Setting ring to STOPPED (white)');
+                                this.updateTransportState('stopped');
+                            } else if (action === 'record') {
+                                console.log('🔴 Setting ring to RECORDING (red)');
+                                this.updateTransportState('recording');
+                            } else if (action === 'pause') {
+                                console.log('⚪ Setting ring to PAUSED (white)');
+                                this.updateTransportState('paused');
+                            }
+                        }, 50); // Small delay to ensure status update doesn't interfere
+                        
+                        // Use quickSpeak for transport commands (INSTANT), regular speak for others
+                        const transportActions = ['play', 'stop', 'record', 'pause', 'rewind', 'forward', 'toggleloop', 'toggleclick'];
+                        if (transportActions.includes(action)) {
+                            this.quickSpeak(response);
+                        } else {
+                            this.speak(response);
+                        }
                     } else {
                         console.error('❌ REAPER action failed:', result);
                         this.logResult(transcript, 'error');
@@ -3240,6 +5212,84 @@ class RHEAController {
         }
     }
 
+    setupVoiceEngineListeners() {
+        // Listen for voice engine changes from main process (via IPC)
+        if (window.api && window.api.onVoiceEngineChanged) {
+            window.api.onVoiceEngineChanged((engine) => {
+                console.log(`🔄 Voice engine changed (IPC): ${engine || 'none'}`);
+                this.activeVoiceEngine = engine;
+                
+                // Update FULL UI based on new engine
+                if (engine === 'asr') {
+                    this.isListening = true;
+                    this.updateStatus('listening', '🧠 ASR Active');
+                    this.updateVoiceEngineStatus('listening', 'ASR Active');
+                    this.updateListeningUI(true, 'ASR');
+                } else if (engine === 'whisper') {
+                    this.isListening = true;
+                    this.updateStatus('listening', 'Listening...');
+                    this.updateVoiceEngineStatus('listening', 'Listening...');
+                    this.updateListeningUI(true, 'Whisper');
+                } else {
+                    this.isListening = false;
+                    this.updateStatus('ready', 'Ready');
+                    this.updateVoiceEngineStatus('ready', 'Ready');
+                    this.updateListeningUI(false);
+                }
+            });
+        }
+        
+        // Listen for custom events from ASR config UI
+        window.addEventListener('voice-engine-changed', (event) => {
+            const engine = event.detail;
+            console.log(`🔄 Voice engine event (DOM): ${engine || 'none'}`);
+            this.activeVoiceEngine = engine;
+            
+            // Update FULL UI when switching to ASR
+            if (engine === 'asr') {
+                this.isListening = true;
+                this.updateStatus('listening', '🧠 ASR Active');
+                this.updateVoiceEngineStatus('listening', 'ASR Active');
+                this.updateListeningUI(true, 'ASR');
+            } else if (engine === 'whisper') {
+                this.isListening = true;
+                this.updateStatus('listening', 'Listening...');
+                this.updateListeningUI(true, 'Whisper');
+            } else if (engine === null) {
+                this.isListening = false;
+                this.updateStatus('ready', 'Ready');
+                this.updateListeningUI(false);
+            }
+        });
+        
+        console.log('🎤 Voice engine listeners set up');
+    }
+    
+    // Update the main Start Listening button UI
+    updateListeningUI(isActive, engineName = '') {
+        const listenBtn = document.querySelector('.listen-btn, #start-listening-btn, [data-action="toggle-voice"]');
+        if (listenBtn) {
+            if (isActive) {
+                listenBtn.classList.add('listening', 'active');
+                listenBtn.classList.remove('ready');
+                const label = engineName ? `🎤 ${engineName} Active` : '🎤 Listening...';
+                if (listenBtn.querySelector('.btn-label')) {
+                    listenBtn.querySelector('.btn-label').textContent = label;
+                } else {
+                    listenBtn.textContent = label;
+                }
+            } else {
+                listenBtn.classList.remove('listening', 'active');
+                listenBtn.classList.add('ready');
+                if (listenBtn.querySelector('.btn-label')) {
+                    listenBtn.querySelector('.btn-label').textContent = '🎤 Start Listening';
+                } else {
+                    listenBtn.textContent = '🎤 Start Listening';
+                }
+            }
+        }
+    }
+    
     initVoice() {
         // Initialize and select the best available voice
         if (!window.speechSynthesis) return;
@@ -3288,6 +5338,192 @@ class RHEAController {
         }
     }
     
+    /**
+     * STOP microphone to prevent feedback during speech
+     */
+    pauseListening() {
+        console.log('🔇 Pausing microphone (preventing feedback)');
+        
+        // Stop browser speech recognition
+        if (this.recognition) {
+            try {
+                this.recognition.stop();
+            } catch (e) {}
+        }
+        
+        // Signal Python Whisper to pause via IPC
+        if (window.api && window.api.signalSpeaking) {
+            window.api.signalSpeaking(true).catch(() => {});
+        }
+        
+        // SAFETY TIMEOUT: Auto-resume if stuck for more than 15 seconds
+        if (this._speakingTimeout) {
+            clearTimeout(this._speakingTimeout);
+        }
+        this._speakingTimeout = setTimeout(() => {
+            console.log('⚠️ SAFETY: Auto-resuming listening after timeout');
+            this.isSpeaking = false;
+            this.ensureListening();
+        }, 15000); // 15 second safety timeout
+    }
+    
+    /**
+     * RESUME microphone after speech ends
+     */
+    resumeListening() {
+        console.log('👂 Resuming microphone');
+        
+        // Clear safety timeout
+        if (this._speakingTimeout) {
+            clearTimeout(this._speakingTimeout);
+            this._speakingTimeout = null;
+        }
+        
+        // Clear the speaking signal for Python Whisper via IPC
+        if (window.api && window.api.signalSpeaking) {
+            window.api.signalSpeaking(false).catch(() => {});
+        }
+        
+        // Small delay to avoid catching echo
+        setTimeout(() => {
+            this.isSpeaking = false;
+            this.speechEndTime = Date.now();
+            
+            // Restart browser speech recognition
+            if (this.isListening && this.recognition) {
+                try {
+                    this.recognition.start();
+                } catch (e) {}
+            }
+        }, 500); // 500ms delay to let echo fade completely
+    }
+    
+    /**
+     * Quick speak - Uses OpenAI TTS ONLY for consistent voice
+     * Skips D-ID animation for faster response
+     * NO browser TTS fallback!
+     */
+    async quickSpeak(text) {
+        if (!text || text.trim() === '' || !this.voiceFeedbackEnabled) return;
+        
+        // ========================================
+        // NATURAL VOICE TRANSFORMATION
+        // Make responses feel human, not robotic
+        // ========================================
+        let naturalText = text;
+        
+        if (window.NaturalVoice) {
+            // Transform robotic response to natural one
+            const transformed = window.NaturalVoice.makeNatural(text);
+            if (transformed) {
+                naturalText = transformed;
+            }
+        }
+        
+        console.log('⚡ Quick speak (natural):', naturalText);
+        
+        // STOP microphone to prevent feedback
+        this.pauseListening();
+        this.isSpeaking = true;
+        
+        // Stop all audio sources
+        document.querySelectorAll('audio').forEach(audio => {
+            audio.pause();
+            audio.currentTime = 0;
+        });
+        
+        try {
+            // Check cache first for INSTANT playback
+            if (window.NaturalVoice) {
+                const cached = window.NaturalVoice.getCachedAudio(naturalText);
+                if (cached) {
+                    console.log('⚡ Playing CACHED audio (instant)');
+                    const audioUrl = URL.createObjectURL(cached);
+                    const audio = new Audio(audioUrl);
+                    await new Promise((resolve, reject) => {
+                        audio.onended = () => { URL.revokeObjectURL(audioUrl); resolve(); };
+                        audio.onerror = () => { URL.revokeObjectURL(audioUrl); reject(); };
+                        audio.play();
+                    });
+                    return;
+                }
+            }
+            
+            // Generate fresh audio via OpenAI
+            await this.speakOpenAI(naturalText);
+            
+        } catch (error) {
+            console.error('⚡ TTS error:', error);
+        } finally {
+            // CRITICAL: Delay before resuming to let echo fade
+            // The Python listener waits 1.5s after signal clears
+            // But we add extra buffer here too
+            await new Promise(resolve => setTimeout(resolve, 800));
+            
+            this.isSpeaking = false;
+            this.speechEndTime = Date.now();
+            this.resumeListening();
+        }
+    }
+    
+    /**
+     * Direct OpenAI TTS call - bypasses provider system
+     */
+    async speakOpenAI(text) {
+        // Get API key from AI config
+        const aiConfig = JSON.parse(localStorage.getItem('rhea_ai_config') || '{}');
+        const apiKey = aiConfig.apiKey;
+        
+        if (!apiKey) {
+            console.error('❌ No OpenAI API key configured for TTS');
+            return;
+        }
+        
+        // Optimize: Keep text SHORT for speed
+        // Long responses = slow generation
+        let optimizedText = text;
+        if (text.length > 80) {
+            // Truncate long responses
+            optimizedText = text.substring(0, 80);
+        }
+        
+        console.log('🔊 OpenAI TTS:', optimizedText);
+        
+        const response = await fetch('https://api.openai.com/v1/audio/speech', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'tts-1',           // Fast model (tts-1-hd is slower)
+                input: optimizedText,
+                voice: 'nova',            // Natural female voice
+                speed: 1.05               // Slightly faster than default
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`OpenAI TTS error: ${response.status}`);
+        }
+        
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+        
+        return new Promise((resolve, reject) => {
+            audio.onended = () => {
+                URL.revokeObjectURL(audioUrl);
+                resolve();
+            };
+            audio.onerror = (e) => {
+                URL.revokeObjectURL(audioUrl);
+                reject(e);
+            };
+            audio.play();
+        });
+    }
+    
     async speak(text) {
         if (!text || text.trim() === '') return;
         
@@ -3301,50 +5537,215 @@ class RHEAController {
         
         console.log('RHEA says:', text);
         
-        // Mark as speaking to prevent feedback loops
-        this.isSpeaking = true;
+        // ============================================
+        // AGGRESSIVE SPEECH CANCELLATION
+        // Stop ALL audio sources to prevent double voice
+        // ============================================
         
-        // Cancel any ongoing speech immediately
+        // 1. Cancel browser speech synthesis
         if (window.speechSynthesis) {
             window.speechSynthesis.cancel();
         }
         
-        try {
-            // Use TTS Provider if available, otherwise fallback to browser TTS
-            if (this.ttsProvider && this.ttsProvider.currentProvider !== 'browser') {
-                // Use high-quality TTS provider
-                await this.ttsProvider.speak(text, {
-                    rate: this.voiceConfig.rate,
-                    pitch: this.voiceConfig.pitch,
-                    volume: this.voiceConfig.volume
-                });
-                
-                // Update speaking state
-                const avatar = document.querySelector('.rhea-avatar');
-                if (avatar) avatar.classList.add('speaking');
-                console.log('🔊 RHEA started speaking (TTS Provider)');
-                
-                // Wait for speech to actually finish before resetting flag
-                // Estimate speech duration based on text length (rough estimate: 180 words per minute = 333ms per word average)
-                // INCREASED: Add extra padding to prevent feedback loops
-                const wordCount = text.split(' ').length;
-                const estimatedDuration = Math.max(1200, wordCount * 400); // At least 1.2 seconds, 400ms per word + padding
-                
-                setTimeout(() => {
-                    this.isSpeaking = false;
-                    this.speechEndTime = Date.now();
-                    if (avatar) avatar.classList.remove('speaking');
-                    console.log('🔇 RHEA finished speaking - cooldown period started');
-                    console.log(`   Cooldown active for ${this.speechCooldown}ms`);
-                }, estimatedDuration);
-            } else {
-                // Fallback to browser TTS
-                this.speakBrowser(text);
-            }
-        } catch (error) {
-            console.error('TTS Provider error, falling back to browser TTS:', error);
-            this.speakBrowser(text);
+        // 2. Stop any playing audio elements
+        document.querySelectorAll('audio').forEach(audio => {
+            audio.pause();
+            audio.currentTime = 0;
+        });
+        
+        // 3. Cancel any pending speech timers
+        if (this._speechTimer) {
+            clearTimeout(this._speechTimer);
+            this._speechTimer = null;
         }
+        
+        // Send to overlay window
+        if (window.overlay && window.overlay.updateSpeech) {
+            window.overlay.updateSpeech(text);
+        }
+        
+        // STOP microphone to prevent feedback loops
+        this.pauseListening();
+        this.isSpeaking = true;
+        
+        const avatar = document.querySelector('.rhea-avatar');
+        
+        try {
+            // ============================================
+            // D-ID ANIMATED AVATAR (PRIMARY)
+            // ============================================
+            // Priority: D-ID Cached → D-ID Generate → Audio-Reactive fallback
+            
+            const didService = window.DIDService;
+            const animatedAvatar = window.AnimatedAvatar;
+            
+            if (didService?.isInitialized && animatedAvatar?.enabled) {
+                const cacheKey = didService.getCacheKey(text);
+                const cachedUrl = didService.cachedVideos.get(cacheKey) || didService.persistentCache[cacheKey];
+                
+                // Check if cached URL exists AND is not expired
+                if (cachedUrl && !didService.isUrlExpired(cachedUrl)) {
+                    // INSTANT: Use cached D-ID animation
+                    console.log('⚡ Playing CACHED D-ID animation');
+                    try {
+                        if (avatar) avatar.classList.add('speaking');
+                        
+                        animatedAvatar.playVideo(cachedUrl).then(() => {
+                            this.isSpeaking = false;
+                            this.speechEndTime = Date.now();
+                            if (avatar) avatar.classList.remove('speaking');
+                            this.ensureListening();
+                        }).catch((err) => {
+                            console.warn('⚡ D-ID playback failed (URL may have expired):', err.message);
+                            // Clear the expired/invalid cache entry
+                            didService.cachedVideos.delete(cacheKey);
+                            delete didService.persistentCache[cacheKey];
+                            didService.savePersistentCache();
+                            
+                            this.isSpeaking = false;
+                            this.ensureListening();
+                        });
+                        
+                        return; // D-ID handles everything
+                    } catch (e) {
+                        console.warn('⚡ Cached D-ID failed, using fallback');
+                    }
+                } else {
+                    // Not cached - use audio-reactive NOW, generate D-ID in background
+                    console.log('🎬 D-ID not cached - using audio-reactive, caching D-ID in background');
+                    
+                    // Start audio-reactive for immediate visual feedback
+                    const localAnimService = window.LocalAnimationService;
+                    if (localAnimService) {
+                        const duration = localAnimService.estimateSpeechDuration(text);
+                        localAnimService.startAudioReactive(duration);
+                    }
+                    
+                    // Generate D-ID in background for next time
+                    didService.createTalkFromText(text).then(url => {
+                        console.log('✅ D-ID cached for next time:', text.substring(0, 30));
+                    }).catch(err => {
+                        console.warn('D-ID generation failed:', err.message);
+                    });
+                }
+            } else {
+                // D-ID not available - use audio-reactive
+                console.log('🎤 D-ID not configured - using audio-reactive');
+                const localAnimService = window.LocalAnimationService;
+                if (localAnimService) {
+                    const duration = localAnimService.estimateSpeechDuration(text);
+                    localAnimService.startAudioReactive(duration);
+                }
+            }
+            // ============================================
+            
+            // ============================================
+            // OPENAI TTS ONLY - NO BROWSER FALLBACK
+            // ============================================
+            
+            if (avatar) avatar.classList.add('speaking');
+            
+            try {
+                // Check if TTS provider is configured with API key
+                const useProvider = this.ttsProvider && 
+                                   this.ttsProvider.config.provider !== 'browser' &&
+                                   this.ttsProvider.config.apiKey;
+                
+                if (useProvider) {
+                    // Use configured TTS provider (OpenAI, ElevenLabs, etc.)
+                    console.log('🔊 Using TTS Provider:', this.ttsProvider.config.provider);
+                    await this.ttsProvider.speak(text, {
+                        rate: this.voiceConfig.rate,
+                        pitch: this.voiceConfig.pitch,
+                        volume: this.voiceConfig.volume
+                    });
+                    console.log('✅ TTS Provider speech completed');
+                } else {
+                    // No provider configured - use direct OpenAI call
+                    console.log('🔊 No TTS provider - using direct OpenAI TTS');
+                    await this.speakOpenAI(text);
+                }
+            } catch (ttsError) {
+                console.error('❌ OpenAI TTS error (NO browser fallback):', ttsError);
+                // NO BROWSER FALLBACK - just log the error
+            }
+            
+            // Cleanup after speech
+            this.isSpeaking = false;
+            this.speechEndTime = Date.now();
+            if (avatar) avatar.classList.remove('speaking');
+            console.log('🔇 RHEA finished speaking');
+            this.ensureListening()
+        } catch (error) {
+            console.error('Speech error:', error);
+            this.isSpeaking = false;
+            this.speechEndTime = Date.now();
+            if (avatar) avatar.classList.remove('speaking');
+            this.ensureListening();
+        }
+    }
+    
+    /**
+     * Async version of speakBrowser that returns a Promise
+     */
+    speakBrowserAsync(text) {
+        return new Promise((resolve, reject) => {
+            if (!window.speechSynthesis) {
+                resolve();
+                return;
+            }
+            
+            // Cancel any existing speech first
+            window.speechSynthesis.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            
+            // Use selected voice
+            if (this.voiceConfig.selectedVoice) {
+                utterance.voice = this.voiceConfig.selectedVoice;
+                utterance.lang = this.voiceConfig.selectedVoice.lang || 'en-US';
+            } else {
+                const voices = window.speechSynthesis.getVoices();
+                const bestVoice = voices.find(v => 
+                    v.name.includes('Samantha') || v.name.includes('Alex')
+                ) || voices.find(v => v.lang.startsWith('en'));
+                if (bestVoice) {
+                    utterance.voice = bestVoice;
+                    utterance.lang = bestVoice.lang;
+                }
+            }
+            
+            utterance.rate = this.voiceConfig.rate;
+            utterance.pitch = this.voiceConfig.pitch;
+            utterance.volume = this.voiceConfig.volume;
+            
+            const avatar = document.querySelector('.rhea-avatar');
+            
+            utterance.onstart = () => {
+                if (avatar) avatar.classList.add('speaking');
+                console.log('🔊 Browser TTS started');
+            };
+            
+            utterance.onend = () => {
+                if (avatar) avatar.classList.remove('speaking');
+                this.isSpeaking = false;
+                this.speechEndTime = Date.now();
+                console.log('🔇 Browser TTS finished');
+                this.ensureListening();
+                resolve();
+            };
+            
+            utterance.onerror = (e) => {
+                if (avatar) avatar.classList.remove('speaking');
+                this.isSpeaking = false;
+                this.speechEndTime = Date.now();
+                console.error('Browser TTS error:', e);
+                this.ensureListening();
+                resolve(); // Resolve anyway to not break the flow
+            };
+            
+            window.speechSynthesis.speak(utterance);
+        });
     }
     
     speakBrowser(text) {
@@ -3400,13 +5801,25 @@ class RHEAController {
                 if (avatar) avatar.classList.remove('speaking');
                 this.isSpeaking = false;
                 this.speechEndTime = Date.now();
-                console.log('🔇 RHEA finished speaking - cooldown period started');
+                console.log('🔇 RHEA finished speaking');
+                
+                // ENSURE listening resumes IMMEDIATELY
+                this.ensureListening();
             };
             
             utterance.onerror = (e) => {
-                console.warn('Speech synthesis error:', e);
+                // "interrupted" errors are expected when we cancel speech (debouncing)
+                if (e.error === 'interrupted' || e.error === 'canceled') {
+                    console.log('🔇 Speech interrupted (debouncing - this is normal)');
+                } else {
+                    // Real errors - log them
+                    console.warn('⚠️ Speech synthesis error:', e.error);
+                }
                 this.isSpeaking = false;
                 this.speechEndTime = Date.now();
+                
+                // ENSURE listening resumes even on error
+                this.ensureListening();
             };
             
             window.speechSynthesis.speak(utterance);
@@ -3442,7 +5855,29 @@ class RHEAController {
             this.isProcessingCommand = false;
         }
         // Process it the same way as voice commands
-        this.processCommand(command);
+        // Quick command buttons are USER-INTENTIONAL (treat as typed, never require wake phrase)
+        this.processCommand(command, { source: 'typed' });
+    }
+    
+    /**
+     * DEBUGGING: Manual test function for transport states
+     * Call from console: window.rhea.testTransportRing('playing')
+     */
+    testTransportRing(state) {
+        console.log('🧪 MANUAL TEST: testTransportRing called with state:', state);
+        this.updateTransportState(state);
+        
+        // Check computed styles
+        const avatar = document.querySelector('.rhea-avatar');
+        if (avatar) {
+            const styles = window.getComputedStyle(avatar, '::before');
+            console.log('🎨 Computed ::before styles:');
+            console.log('   border-color:', styles.borderColor);
+            console.log('   border-width:', styles.borderWidth);
+            console.log('   box-shadow:', styles.boxShadow);
+            console.log('   opacity:', styles.opacity);
+            console.log('   animation:', styles.animation);
+        }
     }
 
     logCommand(cmd) {
@@ -3486,6 +5921,13 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('🚀 window.dawrv exists:', !!window.dawrv);
     console.log('🚀 window.api exists:', !!window.api);
     console.log('🚀 window.api:', window.api);
+    
+    // Initialize avatar with stopped state (WHITE ring)
+    const avatar = document.querySelector('.rhea-avatar');
+    if (avatar) {
+        avatar.classList.add('transport-stopped');
+        console.log('✅ Avatar initialized with WHITE ring (stopped state)');
+    }
     if (window.api) {
         console.log('🚀 window.api.executeReaperAction exists:', !!window.api.executeReaperAction);
         console.log('🚀 window.api.executeReaperAction:', window.api.executeReaperAction);
@@ -3494,6 +5936,14 @@ document.addEventListener('DOMContentLoaded', () => {
     
     window.rhea = new RHEAController();
     console.log('✅ RHEA ready!');
+    
+    // Pre-cache common voice responses for INSTANT playback
+    setTimeout(() => {
+        if (window.NaturalVoice && window.rhea) {
+            console.log('🎤 Pre-caching voice responses...');
+            window.NaturalVoice.cacheCommonResponses();
+        }
+    }, 3000);
     
     // Check again after initialization
     setTimeout(() => {
@@ -3520,12 +5970,18 @@ document.addEventListener('DOMContentLoaded', () => {
         window.dawrv.voice.onCommand((command) => {
             console.log('🎤 Voice command received:', command);
             console.log('   isListening:', window.rhea ? window.rhea.isListening : 'rhea not found');
-            // Process command - removed isListening check temporarily for debugging
-            if (window.rhea) {
+            // Only process voice commands when listening is active
+            if (window.rhea && window.rhea.isListening) {
+                // Hard gate while transport is active (prevents music playback from triggering actions)
+                const gate = window.rhea.preprocessVoiceTranscript(command);
+                if (!gate.accept) {
+                    console.log('🔇 Ignoring voice command (wake gate):', command);
+                    return;
+                }
                 console.log('✅ Processing voice command');
-                window.rhea.processCommand(command);
+                window.rhea.processCommand(gate.transcript, { source: 'voice', skipWakeCheck: gate.skipWakeCheck });
             } else {
-                console.log('❌ RHEA controller not found');
+                console.log('🔇 Ignoring voice command (not listening)');
             }
         });
         
@@ -3533,6 +5989,34 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.dawrv.voice.onReaperLog) {
             window.dawrv.voice.onReaperLog((message) => {
                 console.log('📋 [MAIN PROCESS LOG]:', message);
+            });
+        }
+        
+        // Listen for DAW state updates (transport state) for visual feedback
+        if (window.dawrv.voice.onDawState) {
+            window.dawrv.voice.onDawState((state) => {
+                // Keep logs light; DAW state can be very chatty
+                if (window.rhea && state.transport) {
+                    // Update transport visual ring based on play/record/stop state
+                    const transport = state.transport || {};
+                    // Support both schemas:
+                    // - New: { playing: bool, recording: bool, paused: bool }
+                    // - Old: { play: 0/1, record: 0/1, pause: 0/1 }
+                    const isPlaying = (typeof transport.playing === 'boolean') ? transport.playing : (transport.play === 1);
+                    const isRecording = (typeof transport.recording === 'boolean') ? transport.recording : (transport.record === 1);
+                    const isPaused = (typeof transport.paused === 'boolean') ? transport.paused : (transport.pause === 1);
+                    let visualState = 'stopped';
+                    
+                    if (isRecording) {
+                        visualState = 'recording';
+                    } else if (isPlaying && !isPaused) {
+                        visualState = 'playing';
+                    } else if (isPaused) {
+                        visualState = 'paused';
+                    }
+                    
+                    window.rhea.updateTransportState(visualState);
+                }
             });
         }
     }

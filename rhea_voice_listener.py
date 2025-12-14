@@ -94,22 +94,29 @@ print('Say: play, stop, record, undo, save, or new track\n', flush=True)
 
 recognizer = sr.Recognizer()
 
-# Improve recognition settings
-recognizer.energy_threshold = 200  # Lower threshold to catch quieter speech at start
+# Improve recognition settings - BALANCED FOR SPEED & ACCURACY
+recognizer.energy_threshold = 50  # Very sensitive for quiet mics
 recognizer.dynamic_energy_threshold = True
 recognizer.dynamic_energy_adjustment_damping = 0.15
 recognizer.dynamic_energy_ratio = 1.5
-recognizer.pause_threshold = 0.8  # INCREASED: Wait longer before ending phrase (catch full command)
-recognizer.phrase_threshold = 0.1  # Start listening sooner (catch first word)
-recognizer.non_speaking_duration = 0.5  # INCREASED: More tolerance for pauses within a phrase
+recognizer.pause_threshold = 0.6  # BALANCED: 0.6s pause (enough time to finish phrase)
+recognizer.phrase_threshold = 0.1  # Start listening quickly
+recognizer.non_speaking_duration = 0.5  # Allow brief pauses within phrases
 recognizer.operation_timeout = None
 
 try:
-    microphone = sr.Microphone()
-    print('✅ Microphone initialized', flush=True)
+    # Use External Microphone (device index 1) if available
+    microphone = sr.Microphone(device_index=1)
+    print('✅ External Microphone initialized (device 1)', flush=True)
 except Exception as e:
-    print(f'❌ Microphone error: {e}', flush=True)
-    sys.exit(1)
+    print(f'⚠️  External mic not available: {e}', flush=True)
+    print('   Trying default microphone...', flush=True)
+    try:
+        microphone = sr.Microphone()
+        print('✅ Default microphone initialized', flush=True)
+    except Exception as e2:
+        print(f'❌ Microphone error: {e2}', flush=True)
+        sys.exit(1)
 
 # Adjust for ambient noise with longer calibration
 print('🔧 Calibrating microphone (this may take a few seconds)...', flush=True)
@@ -128,9 +135,9 @@ while True:
     try:
         with microphone as source:
             print('🎧 Listening...', flush=True)
-            # Increase phrase time limit for longer commands
-            # Give more time to capture full multi-word commands
-            audio = recognizer.listen(source, timeout=None, phrase_time_limit=10)
+            # BALANCED: 5 seconds for complete phrases
+            # Enough time for multi-word commands like "arm track" or "overdub mode"
+            audio = recognizer.listen(source, timeout=None, phrase_time_limit=5)
         
         try:
             # Use Google Speech Recognition with language hint
