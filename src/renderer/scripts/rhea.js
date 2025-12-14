@@ -161,7 +161,16 @@ class RHEAController {
         };
 
         // Wake phrase gating to avoid reacting to music playback
-        this.wakePhrases = ['hey rhea', 'rhea'];
+        // Note: ASR often mishears "Rhea" as "real"/"ria"/"reah". We accept a few safe
+        // variants *only* as an utterance prefix so wake gating still blocks playback noise.
+        this.wakePhrases = [
+            'hey rhea',
+            'rhea',
+            // Common mis-hears (prefix-only)
+            'hey real',
+            'hey ria',
+            'hey reah'
+        ];
         // Wake gating UI settings
         // Modes:
         // - always: wake phrase required for all VOICE input
