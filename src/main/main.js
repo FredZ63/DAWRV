@@ -2046,8 +2046,9 @@ async function handleMeasureCommand(event, command, measure, measureEnd) {
     console.log('📏 execute-measure-command handler called:', command, measure, measureEnd);
     try {
         // ===============================
-        // Fast-path: Go to bar via ExtState + ReaScript action ID
-        // This avoids REAPER CLI "-run" which is unreliable when REAPER is already running.
+        // Fast-path: Go to bar via REAPER Web Control (/SET/POS + /TRANSPORT)
+        // This avoids REAPER CLI "-run" (unreliable when REAPER is already running) and
+        // avoids relying on ReaScript action IDs (the web ACTION endpoint returns 200 even for invalid IDs).
         // ===============================
         if (command === 'goto' && typeof measure !== 'undefined' && measure !== null) {
             const barNumber = Number(measure);
@@ -2055,12 +2056,6 @@ async function handleMeasureCommand(event, command, measure, measureEnd) {
                 return { success: false, error: 'Invalid bar number' };
             }
 
-            // Action command ID for dawrv_goto_bar_from_extstate.lua (can be overridden)
-            const GOTO_BAR_ACTION_ID =
-                process.env.DAWRV_GOTO_BAR_ACTION_ID ||
-                '_RS59cea27ab9c1a2647112bdc02955a66e77578452';
-
-            // 1) Set ExtState via REAPER Web Interface
             const http = require('http');
             // REAPER web control can be bound to LAN IP (e.g. 192.168.x.x) instead of localhost.
             // Try localhost + all local IPv4 addresses.
@@ -2083,67 +2078,103 @@ async function handleMeasureCommand(event, command, measure, measureEnd) {
                 'localhost',
                 ...ips
             ].filter(Boolean)));
-            const setExtState = (host) => new Promise((resolve) => {
-                const pathStr = `/_/EXTSTATE/RHEA/target_bar/${encodeURIComponent(String(barNumber))}`;
-                const req = http.request({ hostname: host, port: 8080, path: pathStr, method: 'GET', timeout: 600 }, (res) => {
-                    res.on('data', () => {});
-                    res.on('end', () => resolve(res.statusCode === 200));
+
+            const httpGetText = (host, pathStr, timeoutMs) => new Promise((resolve, reject) => {
+                const req = http.request({ hostname: host, port: 8080, path: pathStr, method: 'GET', timeout: timeoutMs }, (res) => {
+                    let buf = '';
+                    res.setEncoding('utf8');
+                    res.on('data', (d) => { buf += d; });
+                    res.on('end', () => resolve({ status: res.statusCode || 0, body: (buf || '').trim() }));
                 });
-                req.on('error', () => resolve(false));
-                req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve(false); });
+                req.on('error', reject);
+                req.on('timeout', () => { try { req.destroy(); } catch (_) {} reject(new Error('timeout')); });
                 req.end();
             });
 
-            const runAction = (host) => new Promise((resolve) => {
-                const pathStr = `/_/ACTION/${encodeURIComponent(String(GOTO_BAR_ACTION_ID))}`;
-                const req = http.request({ hostname: host, port: 8080, path: pathStr, method: 'GET', timeout: 800 }, (res) => {
-                    res.on('data', () => {});
-                    res.on('end', () => resolve({ ok: res.statusCode === 200, statusCode: res.statusCode }));
-                });
-                req.on('error', () => resolve({ ok: false, statusCode: 0 }));
-                req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve({ ok: false, statusCode: 0 }); });
-                req.end();
-            });
+            const parseTransport = (line) => {
+                // Format: TRANSPORT\t<playstate>\t<posSec>\t<rec>\t<barStr>\t<barStr>
+                const parts = String(line || '').trim().split('\t');
+                if (!parts || parts[0] !== 'TRANSPORT') return null;
+                const posSec = parseFloat(parts[2] || '0');
+                const barStr = parts[4] || '';
+                const bar = parseInt(String(barStr).split('.')[0] || '0', 10);
+                return { posSec: Number.isFinite(posSec) ? posSec : 0, bar: Number.isFinite(bar) ? bar : 0, raw: line };
+            };
 
-            let extOk = false;
+            const tryGetTransport = async (host) => {
+                const res = await httpGetText(host, '/_/TRANSPORT', 700);
+                return parseTransport(res.body);
+            };
+
+            // Pick a host that actually returns TRANSPORT
+            let host = null;
+            let t0 = null;
             for (const h of hosts) {
-                extOk = await setExtState(h);
-                if (extOk) break;
+                try {
+                    const t = await tryGetTransport(h);
+                    if (t && t.bar >= 0) { host = h; t0 = t; break; }
+                } catch (_) {}
             }
-            if (!extOk) {
-                return { success: false, error: `REAPER Web Interface not reachable on port 8080 (cannot set ExtState). Tried: ${hosts.join(', ')}` };
-            }
-
-            // 2) Trigger the script via REAPER Web Interface ACTION endpoint (reliable for ReaScript IDs)
-            let actionRes = { ok: false, statusCode: 0 };
-            for (const h of hosts) {
-                actionRes = await runAction(h);
-                if (actionRes.ok) break;
-            }
-            if (actionRes.ok) {
-                return { success: true };
+            if (!host || !t0) {
+                return { success: false, error: `REAPER Web Interface not reachable on port 8080. Tried: ${hosts.join(', ')}` };
             }
 
-            // Fallback: OSC /action/<commandId> (may not work for ReaScript IDs on some OSC configs)
-            try {
-                const dgram = require('dgram');
-                const oscSocket = dgram.createSocket('udp4');
-                const address = `/action/${GOTO_BAR_ACTION_ID}`;
-                let oscData = Buffer.from(address + '\x00', 'utf-8');
-                while (oscData.length % 4 !== 0) oscData = Buffer.concat([oscData, Buffer.from([0])]);
-                // No args
-                oscData = Buffer.concat([oscData, Buffer.from(',\x00\x00\x00', 'utf-8')]);
+            const setPosSeconds = async (sec) => {
+                const s = Math.max(0, Number(sec) || 0);
+                await httpGetText(host, `/_/SET/POS/${encodeURIComponent(String(s))}`, 800);
+            };
 
-                return await new Promise((resolve) => {
-                    oscSocket.send(oscData, 8000, '127.0.0.1', (err) => {
-                        oscSocket.close();
-                        if (err) resolve({ success: false, error: `Goto-bar failed. HTTP ACTION status=${actionRes.statusCode || 0}, OSC error=${err.message}` });
-                        else resolve({ success: true });
-                    });
-                });
-            } catch (e) {
-                return { success: false, error: `Goto-bar failed. HTTP ACTION status=${actionRes.statusCode || 0}, OSC unavailable: ${e.message}` };
+            const barAtSeconds = async (sec) => {
+                await setPosSeconds(sec);
+                // Re-read transport after the move
+                const t = await tryGetTransport(host);
+                return t ? t.bar : 0;
+            };
+
+            const targetBar = Math.floor(barNumber);
+            const currentBar = t0.bar;
+            const currentSec = t0.posSec;
+
+            // Bracket the target in time
+            let low = 0.0;
+            let high = Math.max(1.0, currentSec);
+
+            if (currentBar >= targetBar) {
+                high = currentSec;
+                low = 0.0;
+            } else {
+                low = currentSec;
+                high = Math.max(currentSec, 1.0);
+                let probeBar = currentBar;
+                const maxHigh = 60 * 60 * 3; // 3 hours
+                while (probeBar < targetBar && high < maxHigh) {
+                    probeBar = await barAtSeconds(high);
+                    if (probeBar >= targetBar) break;
+                    low = high;
+                    high = Math.min(maxHigh, high * 2);
+                }
+                if (probeBar < targetBar) {
+                    return { success: false, error: `Could not reach bar ${targetBar} (project may be shorter). Current bar=${probeBar}` };
+                }
             }
+
+            // Binary search for earliest time where bar >= targetBar
+            for (let i = 0; i < 24; i++) {
+                const mid = (low + high) / 2;
+                const b = await barAtSeconds(mid);
+                if (b >= targetBar) high = mid;
+                else low = mid;
+                if ((high - low) < 0.02) break; // 20ms resolution
+            }
+
+            // Final set to the computed position
+            await setPosSeconds(high);
+            const tf = await tryGetTransport(host);
+            if (!tf || tf.bar !== targetBar) {
+                return { success: false, error: `Seek completed but landed on bar ${tf ? tf.bar : '?'} (wanted ${targetBar})` };
+            }
+
+            return { success: true, host, posSec: tf.posSec, bar: tf.bar };
         }
 
         let measureScript;
