@@ -21,6 +21,7 @@ from typing import Optional, Callable, List, Dict, Any
 from dataclasses import dataclass
 from collections import deque
 import json
+import re
 
 # Import engine components
 from .engine import (
@@ -32,6 +33,10 @@ from .engine import (
 )
 
 logger = logging.getLogger('DAWRV_ASR_Streaming')
+
+# If this file exists, RHEA is speaking and we should NOT feed mic audio into ASR.
+# This prevents feedback loops where RHEA hears herself.
+SPEAKING_SIGNAL_FILE = "/tmp/rhea_speaking"
 
 # ============================================================================
 # VOICE ACTIVITY DETECTION
@@ -352,6 +357,16 @@ class StreamingASR:
         self.avg_latency_ms = 0.0
         
         logger.info(f"StreamingASR initialized (chunk={chunk_duration_ms}ms)")
+
+        # Optional: selective second-pass transcription (accuracy boost on numbers/bars/tracks)
+        self.second_pass_model_size = (os.environ.get("DAWRV_SECOND_PASS_MODEL") or "").strip().lower() or None
+        self.second_pass_max_confidence = float(os.environ.get("DAWRV_SECOND_PASS_MAX_CONF", "0.80"))
+        self.second_pass_min_improvement = float(os.environ.get("DAWRV_SECOND_PASS_MIN_IMPROVEMENT", "0.08"))
+        self.second_pass_max_audio_s = float(os.environ.get("DAWRV_SECOND_PASS_MAX_AUDIO_S", "6.0"))
+        self._second_pass_engine = None
+
+        # Heuristic: trigger on digits or DAW timing words
+        self._second_pass_trigger_re = re.compile(r"(\b\d+\b|\bbar(s)?\b|\bmeasure(s)?\b|\btrack(s)?\b)", re.IGNORECASE)
     
     def start(self):
         """Start streaming processing"""
@@ -458,6 +473,36 @@ class StreamingASR:
         
         # Transcribe
         result = self.engine.transcribe(audio, sample_rate=self.sample_rate)
+
+        # Optional second pass (local-only) for tricky command-like utterances
+        if (
+            self.second_pass_model_size
+            and result
+            and result.transcript
+            and float(result.confidence or 0.0) <= self.second_pass_max_confidence
+        ):
+            try:
+                duration_s = float(len(audio)) / float(self.sample_rate)
+            except Exception:
+                duration_s = 0.0
+
+            if duration_s > 0 and duration_s <= self.second_pass_max_audio_s and self._second_pass_trigger_re.search(result.transcript):
+                try:
+                    from .engine import get_engine as _get_engine
+                    if self._second_pass_engine is None:
+                        self._second_pass_engine = _get_engine(model_size=self.second_pass_model_size)
+                        self._second_pass_engine.load_model()
+
+                    second = self._second_pass_engine.transcribe(audio, sample_rate=self.sample_rate)
+                    if second and second.transcript:
+                        improved = float(second.confidence or 0.0) - float(result.confidence or 0.0)
+                        if improved >= self.second_pass_min_improvement:
+                            logger.info(
+                                f"🧠 Second-pass improved ({result.confidence:.2f}→{second.confidence:.2f}): '{result.transcript}' → '{second.transcript}'"
+                            )
+                            result = second
+                except Exception as e:
+                    logger.debug(f"Second-pass failed: {e}")
         
         # Track latency
         latency_ms = (time.time() - start_time) * 1000
@@ -537,6 +582,11 @@ class MicrophoneStream:
         self._pyaudio = None
         self._stream = None
         self.is_running = False
+
+        # Echo/feedback prevention
+        self._last_speaking_state = False
+        self._mute_until_ts = 0.0
+        self.post_speech_mute_s = 1.0  # let room echo decay after TTS
         
         # Callback
         self.on_audio: Optional[Callable[[np.ndarray], None]] = None
@@ -599,6 +649,20 @@ class MicrophoneStream:
         self._init_pyaudio()
         
         def callback(in_data, frame_count, time_info, status):
+            # If RHEA is speaking, drop mic audio to avoid self-triggering.
+            now = time.time()
+            is_speaking = os.path.exists(SPEAKING_SIGNAL_FILE)
+            if is_speaking:
+                self._last_speaking_state = True
+                self._mute_until_ts = now + self.post_speech_mute_s
+                return (None, pyaudio.paContinue)
+
+            # If RHEA just stopped speaking, keep muting briefly.
+            if self._last_speaking_state:
+                if now < self._mute_until_ts:
+                    return (None, pyaudio.paContinue)
+                self._last_speaking_state = False
+
             audio = np.frombuffer(in_data, dtype=np.int16).astype(np.float32) / 32768.0
             if self.on_audio:
                 self.on_audio(audio)

@@ -691,18 +691,19 @@ class DAWRVASREngine:
 # MODULE INITIALIZATION
 # ============================================================================
 
-# Global engine instance (singleton pattern)
-_engine_instance: Optional[DAWRVASREngine] = None
+# Global engine instances (cache by model size)
+_engine_instances: Dict[str, DAWRVASREngine] = {}
 
 def get_engine(
     model_size: str = "base",
     **kwargs
 ) -> DAWRVASREngine:
-    """Get or create the global ASR engine instance"""
-    global _engine_instance
-    if _engine_instance is None:
-        _engine_instance = DAWRVASREngine(model_size=model_size, **kwargs)
-    return _engine_instance
+    """Get or create a cached ASR engine instance (keyed by model size)."""
+    global _engine_instances
+    key = (model_size or "base").strip().lower()
+    if key not in _engine_instances:
+        _engine_instances[key] = DAWRVASREngine(model_size=key, **kwargs)
+    return _engine_instances[key]
 
 
 def transcribe(audio: np.ndarray, **kwargs) -> TranscriptResult:

@@ -473,8 +473,12 @@ class RHEAController {
                     this.asrConfigUI.updateLiveTranscript(data.text, data.confidence);
                 }
                 
-                // Process the command
-                if (data.text && data.text.trim()) {
+                const isFinal = (data && (data.isFinal !== undefined || data.is_final !== undefined))
+                    ? !!(data.isFinal ?? data.is_final)
+                    : true;
+
+                // Process commands ONLY on final transcripts (partials are UI-only)
+                if (isFinal && data.text && data.text.trim()) {
                     // ASR transcript is VOICE source (hard-gated while transport is active)
                     const gate = this.preprocessVoiceTranscript(data.text);
                     if (!gate.accept) {

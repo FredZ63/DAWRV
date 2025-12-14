@@ -1633,23 +1633,39 @@ class DAWRVApp {
                 
                 // Kill existing Whisper listener first
                 killWhisperListener();
+                this.stopFileWatcher();
                 
                 // Clear signal files
                 const fs = require('fs');
                 try { fs.unlinkSync('/tmp/rhea_speaking'); } catch (e) {}
                 try { fs.unlinkSync('/tmp/dawrv_voice_command.txt'); } catch (e) {}
                 
-                // For now, ASR uses the same Whisper listener but with different settings
-                // The main difference is model size (can use larger models)
-                const modelSize = config?.modelSize || 'base';
-                console.log(`🎤 Starting ASR with model: ${modelSize}`);
-                
-                // Start Whisper listener (same as regular mode but with ASR flag)
-                startWhisperListener();
-                
-                // Start file watcher to read commands
-                this.startFileWatcher();
-                
+                // Start the advanced ASR service (Python ASR engine) instead of the legacy file-watcher loop
+                if (!this.asrService) {
+                    throw new Error('ASR service not available');
+                }
+
+                // Update config and start
+                if (config && typeof config === 'object') {
+                    // Back-compat: ASR UI historically used `speechEngine` (local/openai).
+                    // Map that to ASRService `provider` (local/deepgram).
+                    const merged = { ...config };
+                    if (merged.speechEngine && !merged.provider) {
+                        if (merged.speechEngine === 'local') merged.provider = 'local';
+                        if (merged.speechEngine === 'deepgram') merged.provider = 'deepgram';
+                        // If UI says "openai" (older UI), treat as cloud provider for now.
+                        if (merged.speechEngine === 'openai') merged.provider = 'deepgram';
+                    }
+
+                    Object.assign(this.asrService.config, merged);
+                    this.asrService.saveConfig();
+                }
+
+                const result = await this.asrService.start();
+                if (!result || result.success === false) {
+                    throw new Error(result?.error || 'Failed to start ASR service');
+                }
+
                 this.activeVoiceEngine = 'asr';
                 
                 // Notify renderer
@@ -1657,7 +1673,7 @@ class DAWRVApp {
                     this.mainWindow.webContents.send('voice-engine-changed', 'asr');
                 }
                 
-                return { success: true, message: 'ASR started (using enhanced Whisper)' };
+                return { success: true, message: 'ASR started', engine: 'asr' };
             } catch (error) {
                 console.error('❌ Error starting ASR:', error);
                 return { success: false, error: error.message };

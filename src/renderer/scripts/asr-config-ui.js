@@ -108,7 +108,7 @@ class ASRConfigUI {
             <div style="margin-bottom: 20px; padding: 20px; background: linear-gradient(135deg, rgba(0, 150, 136, 0.15), rgba(0, 188, 212, 0.15)); border: 2px solid rgba(0, 188, 212, 0.4); border-radius: 12px;">
                 <h3 style="color: #00BCD4; margin: 0 0 15px 0; font-size: 16px;">🔊 Speech Recognition Engine</h3>
                 
-                <div style="display: flex; gap: 12px; margin-bottom: 15px;">
+                <div style="display: flex; gap: 12px; margin-bottom: 15px; flex-wrap: wrap;">
                     <!-- Local Whisper Option -->
                     <label id="engine-local-label" style="flex: 1; display: flex; flex-direction: column; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 12px; cursor: pointer; border: 2px solid #4CAF50; position: relative;">
                         <div style="position: absolute; top: 8px; right: 8px; background: #4CAF50; color: white; font-size: 10px; padding: 2px 8px; border-radius: 10px;">ACTIVE</div>
@@ -128,6 +128,24 @@ class ASRConfigUI {
                         </div>
                     </label>
                     
+                    <!-- Deepgram Streaming Option -->
+                    <label id="engine-deepgram-label" style="flex: 1; display: flex; flex-direction: column; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 12px; cursor: pointer; border: 2px solid transparent; position: relative; opacity: 0.85;">
+                        <input type="radio" name="speech-engine" value="deepgram" style="position: absolute; opacity: 0;">
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                            <span style="font-size: 24px;">🚀</span>
+                            <div>
+                                <div style="color: #fff; font-weight: bold;">Deepgram Streaming</div>
+                                <div style="color: #00BCD4; font-size: 11px;">Low-latency • Cloud</div>
+                            </div>
+                        </div>
+                        <div style="color: #aaa; font-size: 11px; line-height: 1.4;">
+                            ⚡ ~200–500ms feel<br>
+                            🎯 Great accuracy on commands<br>
+                            🌐 Requires internet<br>
+                            🔑 Uses Deepgram API key
+                        </div>
+                    </label>
+
                     <!-- OpenAI API Option -->
                     <label id="engine-openai-label" style="flex: 1; display: flex; flex-direction: column; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 12px; cursor: pointer; border: 2px solid transparent; position: relative; opacity: 0.8;">
                         <input type="radio" name="speech-engine" value="openai" style="position: absolute; opacity: 0;">
@@ -147,6 +165,22 @@ class ASRConfigUI {
                     </label>
                 </div>
                 
+                <!-- Deepgram Key Input (shown when Deepgram selected) -->
+                <div id="deepgram-stt-config" style="display: none; margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 10px;">
+                    <label style="color: #fff; display: block; margin-bottom: 8px; font-size: 13px;">
+                        🔑 Deepgram API Key <span style="color: #888;">(stored locally)</span>
+                    </label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="password" id="deepgram-stt-key" placeholder="dg_..." style="flex: 1; padding: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: #fff; font-family: monospace;">
+                        <button id="save-deepgram-stt" style="padding: 12px 20px; background: linear-gradient(135deg, #00BCD4, #0097A7); border: none; border-radius: 8px; color: white; cursor: pointer; font-weight: bold;">
+                            Save
+                        </button>
+                    </div>
+                    <div style="margin-top: 10px; font-size: 12px; color: #888;">
+                        Tip: you can also set it via environment variable <code style="color:#80DEEA;">DEEPGRAM_API_KEY</code>.
+                    </div>
+                </div>
+
                 <!-- OpenAI API Key Input (shown when OpenAI selected) -->
                 <div id="openai-stt-config" style="display: none; margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 10px;">
                     <label style="color: #fff; display: block; margin-bottom: 8px; font-size: 13px;">
@@ -163,7 +197,7 @@ class ASRConfigUI {
                 
                 <div style="margin-top: 12px; padding: 10px; background: rgba(0, 188, 212, 0.1); border-left: 3px solid #00BCD4; border-radius: 4px;">
                     <p style="color: #80DEEA; margin: 0; font-size: 12px;">
-                        💡 <strong>Tip:</strong> Local Whisper is great for privacy. OpenAI API is faster and more accurate for complex commands.
+                        💡 <strong>Tip:</strong> For the fastest “human” feel, use <strong>Deepgram Streaming</strong>. Local Whisper is great for privacy/offline.
                     </p>
                 </div>
             </div>
@@ -366,6 +400,22 @@ class ASRConfigUI {
         if (testBtn) {
             testBtn.addEventListener('click', () => this.testOpenAISTT());
         }
+
+        // Deepgram key save button (optional)
+        const saveDeepgramBtn = document.getElementById('save-deepgram-stt');
+        if (saveDeepgramBtn) {
+            saveDeepgramBtn.addEventListener('click', () => {
+                const keyInput = document.getElementById('deepgram-stt-key');
+                const key = (keyInput?.value || '').trim();
+                this.config.deepgramApiKey = key;
+                this.saveConfig();
+                // Persist to backend config too (so it can pass env into the Python process)
+                if (window.api && window.api.updateASRConfig) {
+                    window.api.updateASRConfig(this.config);
+                }
+                this.showToast(key ? '✅ Deepgram key saved' : '✅ Deepgram key cleared');
+            });
+        }
         
         // Model selection
         document.getElementById('asr-model-select').addEventListener('change', (e) => {
@@ -403,25 +453,41 @@ class ASRConfigUI {
     
     updateEngineUI() {
         const localLabel = document.getElementById('engine-local-label');
+        const deepgramLabel = document.getElementById('engine-deepgram-label');
         const openaiLabel = document.getElementById('engine-openai-label');
+        const deepgramConfig = document.getElementById('deepgram-stt-config');
         const openaiConfig = document.getElementById('openai-stt-config');
         
-        if (this.config.speechEngine === 'openai') {
+        const engine = this.config.speechEngine || 'local';
+
+        // Reset badges
+        localLabel.querySelector('.active-badge')?.remove();
+        deepgramLabel?.querySelector('.active-badge')?.remove();
+        openaiLabel.querySelector('.active-badge')?.remove();
+
+        // Hide configs by default
+        if (deepgramConfig) deepgramConfig.style.display = 'none';
+        openaiConfig.style.display = 'none';
+
+        if (engine === 'openai') {
             // OpenAI selected
             localLabel.style.border = '2px solid transparent';
             localLabel.style.opacity = '0.8';
-            localLabel.querySelector('div[style*="ACTIVE"]')?.remove();
+            localLabel.querySelector('div[style*="ACTIVE"]')?.remove(); // legacy badge
             
+            if (deepgramLabel) {
+                deepgramLabel.style.border = '2px solid transparent';
+                deepgramLabel.style.opacity = '0.85';
+            }
+
             openaiLabel.style.border = '2px solid #FF9800';
             openaiLabel.style.opacity = '1';
-            if (!openaiLabel.querySelector('.active-badge')) {
-                const badge = document.createElement('div');
-                badge.className = 'active-badge';
-                badge.style.cssText = 'position: absolute; top: 8px; right: 8px; background: #FF9800; color: white; font-size: 10px; padding: 2px 8px; border-radius: 10px;';
-                badge.textContent = 'ACTIVE';
-                openaiLabel.appendChild(badge);
-            }
-            
+            const badge = document.createElement('div');
+            badge.className = 'active-badge';
+            badge.style.cssText = 'position: absolute; top: 8px; right: 8px; background: #FF9800; color: white; font-size: 10px; padding: 2px 8px; border-radius: 10px;';
+            badge.textContent = 'ACTIVE';
+            openaiLabel.appendChild(badge);
+
             openaiConfig.style.display = 'block';
             
             // Load existing API key from AI config
@@ -429,15 +495,45 @@ class ASRConfigUI {
             if (aiConfig.openaiKey) {
                 document.getElementById('openai-stt-key').value = aiConfig.openaiKey;
             }
+        } else if (engine === 'deepgram') {
+            // Deepgram selected
+            localLabel.style.border = '2px solid transparent';
+            localLabel.style.opacity = '0.8';
+            localLabel.querySelector('div[style*="ACTIVE"]')?.remove(); // legacy badge
+
+            if (deepgramLabel) {
+                deepgramLabel.style.border = '2px solid #00BCD4';
+                deepgramLabel.style.opacity = '1';
+                const badge = document.createElement('div');
+                badge.className = 'active-badge';
+                badge.style.cssText = 'position: absolute; top: 8px; right: 8px; background: #00BCD4; color: white; font-size: 10px; padding: 2px 8px; border-radius: 10px;';
+                badge.textContent = 'ACTIVE';
+                deepgramLabel.appendChild(badge);
+            }
+
+            openaiLabel.style.border = '2px solid transparent';
+            openaiLabel.style.opacity = '0.8';
+
+            if (deepgramConfig) {
+                deepgramConfig.style.display = 'block';
+                const keyInput = document.getElementById('deepgram-stt-key');
+                if (keyInput && this.config.deepgramApiKey) {
+                    keyInput.value = this.config.deepgramApiKey;
+                }
+            }
         } else {
             // Local selected
             openaiLabel.style.border = '2px solid transparent';
             openaiLabel.style.opacity = '0.8';
-            openaiLabel.querySelector('.active-badge')?.remove();
-            
+            if (deepgramLabel) {
+                deepgramLabel.style.border = '2px solid transparent';
+                deepgramLabel.style.opacity = '0.85';
+            }
+
             localLabel.style.border = '2px solid #4CAF50';
             localLabel.style.opacity = '1';
-            
+
+            if (deepgramConfig) deepgramConfig.style.display = 'none';
             openaiConfig.style.display = 'none';
         }
     }
