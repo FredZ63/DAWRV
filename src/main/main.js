@@ -2121,7 +2121,10 @@ async function handleMeasureCommand(event, command, measure, measureEnd) {
 
             const setPosSeconds = async (sec) => {
                 const s = Math.max(0, Number(sec) || 0);
-                await httpGetText(host, `/_/SET/POS/${encodeURIComponent(String(s))}`, 800);
+                // Use fixed precision so we don't accidentally send scientific notation,
+                // and to allow sub-tick accuracy at typical tempos.
+                const sStr = Number.isFinite(s) ? s.toFixed(6) : '0.000000';
+                await httpGetText(host, `/_/SET/POS/${encodeURIComponent(sStr)}`, 800);
             };
 
             const barAtSeconds = async (sec) => {
@@ -2158,13 +2161,14 @@ async function handleMeasureCommand(event, command, measure, measureEnd) {
                 }
             }
 
-            // Binary search for earliest time where bar >= targetBar
-            for (let i = 0; i < 24; i++) {
+            // Binary search for earliest time where bar >= targetBar.
+            // Tight tolerance is important; otherwise we can land 1+ ticks into the bar (e.g. 10.1.01).
+            for (let i = 0; i < 48; i++) {
                 const mid = (low + high) / 2;
                 const b = await barAtSeconds(mid);
                 if (b >= targetBar) high = mid;
                 else low = mid;
-                if ((high - low) < 0.02) break; // 20ms resolution
+                if ((high - low) < 0.0005) break; // 0.5ms resolution
             }
 
             // Final set to the computed position
