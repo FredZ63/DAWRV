@@ -104,6 +104,11 @@ class TTSConfigManager {
                     <option value="off">Off (not recommended)</option>
                 </select>
 
+                <label id="headset-assume-row" style="display: none; align-items: center; gap: 10px; cursor: pointer; color: #fff; margin-bottom: 10px;">
+                    <input type="checkbox" id="headset-assume-toggle" style="width: 18px; height: 18px; cursor: pointer;">
+                    <span><strong>Assume headset mic (no DAW bleed)</strong> <span style="color:#aaa; font-size:12px;">— disables wake gating during playback</span></span>
+                </label>
+
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                     <label style="color: #fff; font-weight: 500;">Wake Session Duration:</label>
                     <span id="wake-session-ms-value" style="color: #8aa0ff; font-weight: 600;">6.0s</span>
@@ -307,8 +312,13 @@ class TTSConfigManager {
         // Wake mode + wake session events
         const wakeModeSelect = document.getElementById('wake-mode-select');
         const wakeSessionSlider = document.getElementById('wake-session-ms-slider');
+        const headsetAssumeRow = document.getElementById('headset-assume-row');
+        const headsetAssumeToggle = document.getElementById('headset-assume-toggle');
         if (wakeModeSelect) {
             wakeModeSelect.onchange = () => this.updateWakeSettings();
+        }
+        if (headsetAssumeToggle) {
+            headsetAssumeToggle.onchange = () => this.updateWakeSettings();
         }
         if (wakeSessionSlider) {
             wakeSessionSlider.oninput = () => {
@@ -425,6 +435,13 @@ class TTSConfigManager {
         const wakeModeSelect = document.getElementById('wake-mode-select');
         if (wakeModeSelect) wakeModeSelect.value = wakeMode;
 
+        // Headset assume toggle (only relevant for auto mode)
+        const headsetAssume = localStorage.getItem('rhea_headset_assume_isolated') === 'true';
+        const headsetAssumeRow = document.getElementById('headset-assume-row');
+        const headsetAssumeToggle = document.getElementById('headset-assume-toggle');
+        if (headsetAssumeToggle) headsetAssumeToggle.checked = headsetAssume;
+        if (headsetAssumeRow) headsetAssumeRow.style.display = (wakeMode === 'auto') ? 'flex' : 'none';
+
         const wakeMsRaw = localStorage.getItem('rhea_wake_session_ms');
         const wakeMs = wakeMsRaw ? parseInt(wakeMsRaw, 10) : 6000;
         const wakeSessionSlider = document.getElementById('wake-session-ms-slider');
@@ -483,9 +500,16 @@ class TTSConfigManager {
         const mode = wakeModeSelect.value || 'always';
         const ms = parseInt(wakeSessionSlider.value, 10) || 6000;
 
+        // Show/hide headset override (only in auto mode)
+        const headsetAssumeRow = document.getElementById('headset-assume-row');
+        const headsetAssumeToggle = document.getElementById('headset-assume-toggle');
+        if (headsetAssumeRow) headsetAssumeRow.style.display = (mode === 'auto') ? 'flex' : 'none';
+        const assume = !!(headsetAssumeToggle && headsetAssumeToggle.checked);
+
         // Persist
         localStorage.setItem('rhea_wake_mode', mode);
         localStorage.setItem('rhea_wake_session_ms', String(ms));
+        localStorage.setItem('rhea_headset_assume_isolated', assume ? 'true' : 'false');
 
         // Apply immediately
         if (this.rhea && typeof this.rhea.setWakeSettings === 'function') {
@@ -496,8 +520,8 @@ class TTSConfigManager {
             this.rhea.wakeSessionDurationMs = ms;
         }
 
-        this.showStatus(`✅ Wake mode: ${mode} • Session: ${(ms / 1000).toFixed(1)}s`, 'success');
-        console.log('🔔 Wake settings updated:', { mode, ms });
+        this.showStatus(`✅ Wake mode: ${mode} • Session: ${(ms / 1000).toFixed(1)}s${mode === 'auto' ? (assume ? ' • Headset assumed' : '') : ''}`, 'success');
+        console.log('🔔 Wake settings updated:', { mode, ms, assumeHeadset: assume });
     }
     
     async saveConfig() {
