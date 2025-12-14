@@ -182,6 +182,7 @@ class RHEAController {
         // Modes:
         // - always: wake phrase required for all VOICE input
         // - playback: wake phrase required only during playback/recording (best if transport feedback is reliable)
+        // - auto: require wake phrase during playback unless a headset-like mic is detected
         // - off: no wake phrase required (not recommended)
         this.wakeMode = localStorage.getItem('rhea_wake_mode') || 'always';
         const savedWakeMs = parseInt(localStorage.getItem('rhea_wake_session_ms') || '6000', 10);
@@ -192,6 +193,13 @@ class RHEAController {
         this.requireWakePhraseWhilePlaying = this.wakeMode !== 'off';
         this.isTransportPlaying = false;
         this._wakeSessionUntil = 0;
+
+        // Best-effort headset mic detection (renderer-only).
+        // If the input device looks like a headset, wakeMode='auto' can relax gating
+        // because DAW audio is less likely to bleed into the mic.
+        this.isHeadsetInput = false;
+        this._lastAudioInputLabel = '';
+        this.initHeadsetDetection();
 
         // Failsafe transport inference from playhead movement (covers OSC setups that don't
         // reliably send /play but DO send time/pos updates while playing)
@@ -4450,10 +4458,15 @@ class RHEAController {
         const commandLike = /\b(stop|play|pause|record|mixer|metronome|click|undo|redo|save|arm|disarm|mute|solo|tempo|bar|marker)\b/i.test(raw);
         const effectiveTransportActive = transportActiveForGate || (dawStateStale && commandLike);
 
-        // In playback-only mode, only require wake when transport is active/unknown+commandlike
-        const needsWake =
+        // Determine whether a wake phrase is required
+        let needsWake =
             (this.wakeMode === 'always') ||
             (this.wakeMode === 'playback' && effectiveTransportActive);
+
+        // Auto mode: require wake during playback unless headset mic detected
+        if (this.wakeMode === 'auto') {
+            needsWake = effectiveTransportActive && !this.isHeadsetInput;
+        }
         if (!needsWake) {
             return { accept: true, transcript: raw, skipWakeCheck: false };
         }
@@ -4508,6 +4521,40 @@ class RHEAController {
         console.log('🔔 Wake settings applied to RHEA:', { mode: this.wakeMode, wakeSessionDurationMs: this.wakeSessionDurationMs });
     }
 
+    /**
+     * Best-effort headset mic detection (renderer-only).
+     * This cannot guarantee the Python ASR process uses the same device, but works well
+     * when the system default input switches to a headset (AirPods, USB headset, etc.).
+     */
+    initHeadsetDetection() {
+        try {
+            if (!navigator?.mediaDevices?.enumerateDevices) return;
+
+            const headsetRe = /(airpods|headset|headphones|bluetooth|beats|sony|bose|jab|jabra|plantronics|logitech|wh-|qc\\s?\\d|wireless|hands-?free|hfp)/i;
+
+            const update = async () => {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const inputs = (devices || []).filter(d => d && d.kind === 'audioinput');
+                    const byLabel = (d) => String(d?.label || '');
+
+                    // Prefer a device that looks like a headset; otherwise fall back to first input.
+                    const candidate = inputs.find(d => headsetRe.test(byLabel(d))) || inputs[0] || null;
+                    const label = candidate ? String(candidate.label || '') : '';
+                    this._lastAudioInputLabel = label;
+                    this.isHeadsetInput = !!(label && headsetRe.test(label));
+                } catch {
+                    // Labels may be empty without permission; keep last known state.
+                }
+            };
+
+            update();
+            navigator.mediaDevices.addEventListener?.('devicechange', update);
+        } catch {
+            // ignore
+        }
+    }
+
     async processCommand(transcript, options = {}) {
         // CRITICAL: Log immediately when function is called
         console.log('*** processCommand CALLED ***', transcript);
@@ -4528,7 +4575,16 @@ class RHEAController {
         const isVoiceSource = source !== 'typed';
         const skipWakeCheck = !!(options && options.skipWakeCheck);
         const transportActiveForGate = !!this.isTransportPlaying || (Date.now() < (this._dawInferredPlayingUntil || 0));
-        const needsWake = isVoiceSource && !skipWakeCheck && (this.requireWakePhrase || (this.requireWakePhraseWhilePlaying && transportActiveForGate));
+
+        // Determine whether a wake phrase is required (VOICE sources only)
+        let needsWake = isVoiceSource && !skipWakeCheck && (this.requireWakePhrase || (this.requireWakePhraseWhilePlaying && transportActiveForGate));
+        if (isVoiceSource && !skipWakeCheck) {
+            if (this.wakeMode === 'off') {
+                needsWake = false;
+            } else if (this.wakeMode === 'auto') {
+                needsWake = transportActiveForGate && !this.isHeadsetInput;
+            }
+        }
         let normalizedCommand = (transcript || '').toLowerCase().trim();
 
         if (needsWake) {
