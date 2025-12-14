@@ -2083,15 +2083,15 @@ async function handleMeasureCommand(event, command, measure, measureEnd) {
                 ...ips
             ].filter(Boolean)));
 
-            const httpGetText = (host, pathStr, timeoutMs) => new Promise((resolve, reject) => {
+            const httpGetText = (host, pathStr, timeoutMs) => new Promise((resolve) => {
                 const req = http.request({ hostname: host, port: 8080, path: pathStr, method: 'GET', timeout: timeoutMs }, (res) => {
                     let buf = '';
                     res.setEncoding('utf8');
                     res.on('data', (d) => { buf += d; });
-                    res.on('end', () => resolve({ status: res.statusCode || 0, body: (buf || '').trim() }));
+                    res.on('end', () => resolve({ ok: true, status: res.statusCode || 0, body: (buf || '').trim() }));
                 });
-                req.on('error', reject);
-                req.on('timeout', () => { try { req.destroy(); } catch (_) {} reject(new Error('timeout')); });
+                req.on('error', (e) => resolve({ ok: false, status: 0, body: '', error: e?.message || 'error' }));
+                req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve({ ok: false, status: 0, body: '', error: 'timeout' }); });
                 req.end();
             });
 
@@ -2105,30 +2105,37 @@ async function handleMeasureCommand(event, command, measure, measureEnd) {
                 return { posSec: Number.isFinite(posSec) ? posSec : 0, bar: Number.isFinite(bar) ? bar : 0, raw: line };
             };
 
-            const tryGetTransport = async (host) => {
-                const res = await httpGetText(host, '/_/TRANSPORT', 700);
-                return parseTransport(res.body);
+            const tryGetTransport = async (host, attempts = 2) => {
+                let last = null;
+                for (let i = 0; i < attempts; i++) {
+                    const res = await httpGetText(host, '/_/TRANSPORT', 2000);
+                    last = res;
+                    if (res && res.ok) {
+                        const parsed = parseTransport(res.body);
+                        if (parsed) return parsed;
+                    }
+                }
+                return null;
             };
 
             // Pick a host that actually returns TRANSPORT
             let host = null;
             let t0 = null;
             for (const h of hosts) {
-                try {
-                    const t = await tryGetTransport(h);
-                    if (t && t.bar >= 0) { host = h; t0 = t; break; }
-                } catch (_) {}
+                const t = await tryGetTransport(h, 2);
+                if (t && t.bar >= 0) { host = h; t0 = t; break; }
             }
             if (!host || !t0) {
                 return { success: false, error: `REAPER Web Interface not reachable on port 8080. Tried: ${hosts.join(', ')}` };
             }
+            console.log('📍 Goto-bar using REAPER web host:', host);
 
             const setPosSeconds = async (sec) => {
                 const s = Math.max(0, Number(sec) || 0);
                 // Use fixed precision so we don't accidentally send scientific notation,
                 // and to allow sub-tick accuracy at typical tempos.
                 const sStr = Number.isFinite(s) ? s.toFixed(6) : '0.000000';
-                await httpGetText(host, `/_/SET/POS/${encodeURIComponent(sStr)}`, 800);
+                await httpGetText(host, `/_/SET/POS/${encodeURIComponent(sStr)}`, 2500);
             };
 
             const barAtSeconds = async (sec) => {
