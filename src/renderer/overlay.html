@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RHEA Overlay</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: transparent;
+            overflow: hidden;
+            cursor: default;
+        }
+        
+        .overlay-container {
+            background: linear-gradient(135deg, rgba(26, 26, 46, 0.95) 0%, rgba(45, 45, 80, 0.95) 100%);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(102, 126, 234, 0.3);
+            backdrop-filter: blur(15px);
+            border: 2px solid rgba(102, 126, 234, 0.4);
+            min-width: 350px;
+            max-width: 450px;
+            transition: all 0.3s ease;
+            -webkit-app-region: drag; /* Make container draggable */
+            cursor: move;
+        }
+        
+        .overlay-container.speaking {
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(102, 126, 234, 0.8);
+            border-color: rgba(102, 226, 234, 0.8);
+        }
+        
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            -webkit-app-region: drag; /* Header is draggable */
+            cursor: move;
+        }
+        
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            -webkit-app-region: drag; /* Logo section is draggable */
+            cursor: move;
+        }
+        
+        .rhea-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .rhea-avatar::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 3px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.8), 
+                        inset 0 0 20px rgba(255, 255, 255, 0.3);
+            animation: ledPulse 2s ease-in-out infinite;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        /* Idle state - White LED */
+        .rhea-avatar.idle::before {
+            border-color: rgba(255, 255, 255, 0.8);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.8), 
+                        inset 0 0 20px rgba(255, 255, 255, 0.3);
+        }
+        
+        /* Listening state - Blue LED */
+        .rhea-avatar.listening::before {
+            border-color: rgba(33, 150, 243, 1);
+            box-shadow: 0 0 30px rgba(33, 150, 243, 1), 
+                        inset 0 0 20px rgba(33, 150, 243, 0.5);
+            animation: ledPulse 1s ease-in-out infinite;
+        }
+        
+        /* Playing state - GREEN LED (stays green while playing) */
+        .rhea-avatar.playing::before {
+            border-color: rgba(0, 255, 100, 1);
+            box-shadow: 0 0 40px rgba(0, 255, 100, 1), 
+                        inset 0 0 20px rgba(0, 255, 100, 0.5);
+            animation: ledPulse 0.8s ease-in-out infinite;
+        }
+        
+        /* Recording state - RED LED (stays red while recording) */
+        .rhea-avatar.recording::before {
+            border-color: rgba(255, 50, 50, 1);
+            box-shadow: 0 0 40px rgba(255, 50, 50, 1), 
+                        inset 0 0 20px rgba(255, 50, 50, 0.5);
+            animation: ledPulse 0.6s ease-in-out infinite;
+        }
+        
+        /* Speaking state - Cyan LED (brief flash) */
+        .rhea-avatar.speaking::before {
+            border-color: rgba(0, 255, 200, 1);
+            box-shadow: 0 0 40px rgba(0, 255, 200, 1), 
+                        inset 0 0 20px rgba(0, 255, 200, 0.5);
+            animation: ledPulse 0.8s ease-in-out infinite;
+        }
+        
+        /* Processing state - Purple LED */
+        .rhea-avatar.processing::before {
+            border-color: rgba(156, 39, 176, 1);
+            box-shadow: 0 0 30px rgba(156, 39, 176, 1), 
+                        inset 0 0 20px rgba(156, 39, 176, 0.5);
+            animation: ledRotate 1.5s linear infinite;
+        }
+        
+        .rhea-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 50%;
+            position: relative;
+            z-index: 1;
+        }
+        
+        @keyframes ledPulse {
+            0%, 100% { 
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% { 
+                opacity: 0.6;
+                transform: scale(1.05);
+            }
+        }
+        
+        @keyframes ledRotate {
+            0% { 
+                transform: rotate(0deg);
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.7;
+            }
+            100% { 
+                transform: rotate(360deg);
+                opacity: 1;
+            }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .title {
+            color: #a8b4ff;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 0 2px 8px rgba(102, 126, 234, 0.6);
+            letter-spacing: 2px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 8px;
+            -webkit-app-region: no-drag; /* Buttons NOT draggable */
+        }
+        
+        .control-btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            -webkit-app-region: no-drag; /* Buttons NOT draggable */
+        }
+        
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+        }
+        
+        .control-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .status-section {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 12px;
+            -webkit-app-region: drag; /* Status section is draggable */
+            cursor: move;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: white;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+        
+        .status-indicator:last-child {
+            margin-bottom: 0;
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4CAF50;
+            animation: blink 2s ease-in-out infinite;
+        }
+        
+        .status-dot.inactive {
+            background: #757575;
+            animation: none;
+        }
+        
+        .status-dot.listening {
+            background: #2196F3;
+            animation: blink 1s ease-in-out infinite;
+        }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        .speech-bubble {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 15px;
+            color: #333;
+            font-size: 14px;
+            line-height: 1.5;
+            min-height: 60px;
+            max-height: 200px;
+            overflow-y: auto;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            position: relative;
+            -webkit-app-region: drag; /* Speech bubble is draggable */
+            cursor: move;
+        }
+        
+        .speech-bubble::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .speech-bubble::-webkit-scrollbar-thumb {
+            background: rgba(102, 126, 234, 0.5);
+            border-radius: 3px;
+        }
+        
+        .speech-text {
+            margin: 0;
+        }
+        
+        .speech-text.idle {
+            color: #999;
+            font-style: italic;
+        }
+        
+        .timestamp {
+            color: #999;
+            font-size: 11px;
+            margin-top: 8px;
+            text-align: right;
+        }
+        
+        /* Resize handle */
+        .resize-handle {
+            position: absolute;
+            bottom: 5px;
+            right: 5px;
+            width: 15px;
+            height: 15px;
+            cursor: nwse-resize;
+            -webkit-app-region: no-drag;
+        }
+        
+        .resize-handle::after {
+            content: '⋰';
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="overlay-container" id="overlayContainer">
+        <div class="header">
+            <div class="logo-section">
+                <div class="rhea-avatar idle" id="avatar">
+                    <img src="assets/images/rhea_avatar.png" alt="RHEA">
+                </div>
+                <div class="title">RHEA</div>
+            </div>
+            <div class="controls">
+                <button class="control-btn" id="minimizeBtn" title="Minimize">−</button>
+                <button class="control-btn" id="closeBtn" title="Close Overlay">×</button>
+            </div>
+        </div>
+        
+        <div class="status-section">
+            <div class="status-indicator">
+                <div class="status-dot inactive" id="listeningDot"></div>
+                <span id="listeningStatus">Not Listening</span>
+            </div>
+            <div class="status-indicator">
+                <div class="status-dot inactive" id="screenAwarenessDot"></div>
+                <span id="screenAwarenessStatus">Screen Awareness: Off</span>
+            </div>
+        </div>
+        
+        <div class="speech-bubble">
+            <p class="speech-text idle" id="speechText">RHEA is ready...</p>
+            <div class="timestamp" id="timestamp"></div>
+        </div>
+        
+        <div class="resize-handle" id="resizeHandle"></div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        // Elements
+        const avatar = document.getElementById('avatar');
+        const container = document.getElementById('overlayContainer');
+        const speechText = document.getElementById('speechText');
+        const timestamp = document.getElementById('timestamp');
+        const listeningDot = document.getElementById('listeningDot');
+        const listeningStatus = document.getElementById('listeningStatus');
+        const screenAwarenessDot = document.getElementById('screenAwarenessDot');
+        const screenAwarenessStatus = document.getElementById('screenAwarenessStatus');
+        const closeBtn = document.getElementById('closeBtn');
+        const minimizeBtn = document.getElementById('minimizeBtn');
+        
+        // Update speech text
+        ipcRenderer.on('overlay-speech', (event, text) => {
+            speechText.textContent = text;
+            speechText.classList.remove('idle');
+            updateTimestamp();
+            
+            // Brief cyan flash for speech (don't override transport state)
+            const currentState = avatar.className.split(' ').find(c => ['playing', 'recording'].includes(c));
+            if (!currentState) {
+                // Only flash cyan if not playing/recording
+                avatar.classList.remove('idle', 'listening', 'processing');
+                avatar.classList.add('speaking');
+                container.classList.add('speaking');
+                
+                setTimeout(() => {
+                    avatar.classList.remove('speaking');
+                    avatar.classList.add('idle');
+                    container.classList.remove('speaking');
+                }, 1000);
+            }
+        });
+        
+        // Update listening status
+        ipcRenderer.on('overlay-listening', (event, isListening) => {
+            if (isListening) {
+                // Change LED to blue when listening
+                avatar.classList.remove('idle', 'speaking', 'processing');
+                avatar.classList.add('listening');
+                
+                listeningDot.classList.remove('inactive');
+                listeningDot.classList.add('listening');
+                listeningStatus.textContent = 'Listening...';
+            } else {
+                // Return to idle white LED
+                avatar.classList.remove('listening', 'speaking', 'processing');
+                avatar.classList.add('idle');
+                
+                listeningDot.classList.add('inactive');
+                listeningDot.classList.remove('listening');
+                listeningStatus.textContent = 'Not Listening';
+            }
+        });
+        
+        // Update screen awareness status
+        ipcRenderer.on('overlay-screen-awareness', (event, isEnabled) => {
+            if (isEnabled) {
+                screenAwarenessDot.classList.remove('inactive');
+                screenAwarenessStatus.textContent = 'Screen Awareness: On';
+            } else {
+                screenAwarenessDot.classList.add('inactive');
+                screenAwarenessStatus.textContent = 'Screen Awareness: Off';
+            }
+        });
+        
+        // Update control detection
+        ipcRenderer.on('overlay-control-detected', (event, controlInfo) => {
+            speechText.textContent = controlInfo;
+            speechText.classList.remove('idle');
+            
+            // Flash purple LED briefly for control detection
+            avatar.classList.remove('idle', 'listening', 'speaking');
+            avatar.classList.add('processing');
+            
+            updateTimestamp();
+            
+            // Return to idle after brief flash
+            setTimeout(() => {
+                avatar.classList.remove('processing');
+                avatar.classList.add('idle');
+            }, 800);
+        });
+        
+        // Update transport state (PLAY/RECORD/STOP)
+        ipcRenderer.on('overlay-transport-state', (event, state) => {
+            console.log('🎛️  Transport state:', state);
+            
+            // Remove all state classes
+            avatar.classList.remove('idle', 'listening', 'speaking', 'processing', 'playing', 'recording');
+            
+            // Set the appropriate state
+            switch(state) {
+                case 'playing':
+                    avatar.classList.add('playing');
+                    console.log('🟢 LED: GREEN (playing)');
+                    break;
+                case 'recording':
+                    avatar.classList.add('recording');
+                    console.log('🔴 LED: RED (recording)');
+                    break;
+                case 'stopped':
+                case 'idle':
+                default:
+                    avatar.classList.add('idle');
+                    console.log('⚪ LED: WHITE (idle)');
+                    break;
+            }
+        });
+        
+        // Update timestamp
+        function updateTimestamp() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            timestamp.textContent = timeStr;
+        }
+        
+        // Close button
+        closeBtn.addEventListener('click', () => {
+            ipcRenderer.send('overlay-close');
+        });
+        
+        // Minimize button
+        minimizeBtn.addEventListener('click', () => {
+            ipcRenderer.send('overlay-minimize');
+        });
+        
+        // Initialize
+        updateTimestamp();
+        
+        console.log('✅ RHEA Overlay initialized');
+    </script>
+</body>
+</html>
+

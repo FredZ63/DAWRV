@@ -1,0 +1,200 @@
+{
+  "version": "1.0.0",
+  "description": "DAWRV/Rhea Custom Vocabulary for DAW Voice Control",
+  "last_updated": "2024-12-01",
+  
+  "categories": {
+    "transport_commands": [
+      "play", "stop", "pause", "record", "rewind", "forward",
+      "fast forward", "fast rewind", "go to start", "go to end",
+      "loop", "cycle", "toggle loop", "set loop",
+      "punch in", "punch out", "auto punch",
+      "pre-roll", "post-roll", "count in", "metronome", "click"
+    ],
+    
+    "track_terms": [
+      "track", "tracks", "channel", "channels",
+      "bus", "aux", "auxiliary", "send", "return",
+      "master", "stereo bus", "main out",
+      "VCA", "VCA fader", "group", "folder track",
+      "mono", "stereo", "surround",
+      "input", "output", "routing"
+    ],
+    
+    "mixing_controls": [
+      "fader", "volume", "level", "gain",
+      "pan", "panning", "balance",
+      "mute", "unmute", "solo", "unsolo",
+      "arm", "record arm", "record enable", "disarm",
+      "phase", "phase invert", "polarity",
+      "width", "stereo width", "mono", "mid-side",
+      "automation", "read", "write", "touch", "latch"
+    ],
+    
+    "editing_commands": [
+      "cut", "copy", "paste", "delete", "duplicate",
+      "split", "trim", "crop", "fade", "crossfade",
+      "undo", "redo", "select all", "deselect",
+      "zoom in", "zoom out", "zoom to fit", "zoom to selection",
+      "nudge", "move", "slip", "shuffle",
+      "snap", "snap to grid", "grid", "free"
+    ],
+    
+    "navigation": [
+      "go to", "jump to", "move to",
+      "bar", "beat", "measure", "marker",
+      "next", "previous", "first", "last",
+      "beginning", "end", "start",
+      "selection", "cursor", "playhead"
+    ],
+    
+    "selection_commands": [
+      "select track", "select channel", "select all",
+      "select from", "select to", "extend selection",
+      "tracks 1 through", "tracks 1 to", "channel 1 through",
+      "select region", "select item", "select clip"
+    ],
+    
+    "plugin_names": [
+      "compressor", "EQ", "equalizer", "reverb", "delay",
+      "limiter", "gate", "noise gate", "expander",
+      "de-esser", "saturator", "exciter", "enhancer",
+      
+      "FabFilter", "Pro-Q", "Pro-C", "Pro-L", "Pro-R", "Pro-MB",
+      "Saturn", "Timeless", "Volcano", "Twin",
+      
+      "Waves", "SSL", "API", "Neve", "CLA", "CLA-2A", "CLA-76",
+      "Renaissance", "H-Delay", "H-Reverb", "Abbey Road",
+      
+      "Soundtoys", "Decapitator", "EchoBoy", "Little Plate",
+      "Crystallizer", "PanMan", "Devil-Loc",
+      
+      "iZotope", "Ozone", "Neutron", "RX", "Nectar", "Vocal Synth",
+      
+      "Kontakt", "Serum", "Massive", "Omnisphere", "Keyscape",
+      "Addictive Drums", "Superior Drummer", "Battery",
+      
+      "Autotune", "Melodyne", "Antares"
+    ],
+    
+    "studio_tasks": [
+      "duplicate", "consolidate", "bounce", "bounce in place",
+      "freeze", "unfreeze", "render", "export", "mixdown",
+      "render stems", "export stems", "print stems",
+      "comp", "comping", "take", "playlist",
+      "quantize", "humanize", "groove",
+      "time stretch", "pitch shift", "varispeed",
+      "normalize", "analyze", "detect tempo"
+    ],
+    
+    "recording_modes": [
+      "normal recording", "overdub", "replace",
+      "tape mode", "loop recording", "takes",
+      "punch recording", "auto-punch",
+      "pre-count", "count-in", "metronome"
+    ],
+    
+    "values_and_numbers": [
+      "zero", "one", "two", "three", "four", "five",
+      "six", "seven", "eight", "nine", "ten",
+      "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+      "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
+      "minus", "plus", "negative", "positive",
+      "dB", "decibels", "percent", "percentage",
+      "left", "right", "center",
+      "BPM", "beats per minute", "tempo"
+    ],
+    
+    "time_references": [
+      "bar", "bars", "beat", "beats", "measure", "measures",
+      "second", "seconds", "minute", "minutes",
+      "frame", "frames", "sample", "samples",
+      "tick", "ticks", "grid", "subdivision"
+    ],
+    
+    "slang_and_jargon": [
+      "make it slap", "make it knock", "make it hit",
+      "dirty that up", "dirty it up", "add some grit",
+      "open the hook", "open up the chorus",
+      "drop in", "drop in on", "punch me in",
+      "top and tail", "heads and tails",
+      "give it some air", "add some space",
+      "tighten it up", "glue it together",
+      "smash it", "crush it", "slam it",
+      "warm it up", "brighten it", "darken it",
+      "fatten it up", "thin it out",
+      "push it forward", "pull it back", "tuck it under",
+      "ride the fader", "automate that",
+      "side chain", "duck", "pump",
+      "bus it", "print it", "commit it"
+    ],
+    
+    "confirmations": [
+      "yes", "yeah", "yep", "correct", "that's right",
+      "no", "nope", "cancel", "nevermind", "never mind",
+      "undo that", "go back", "wait"
+    ],
+    
+    "mode_switches": [
+      "command mode", "command mode on",
+      "dictation mode", "dictation mode on",
+      "listening", "stop listening"
+    ]
+  },
+  
+  "aliases": {
+    "make it slap": "add_punch",
+    "dirty that up": "add_saturation", 
+    "open the hook": "increase_volume_chorus",
+    "drop in on": "punch_in_at",
+    "top and tail": "trim_silence",
+    "give it some air": "add_high_shelf",
+    "tighten it up": "add_compression",
+    "glue it together": "bus_compression",
+    "warm it up": "add_saturation_subtle",
+    "brighten it": "high_shelf_boost",
+    "fatten it up": "low_mid_boost",
+    "thin it out": "reduce_low_mids",
+    "ride the fader": "automate_volume",
+    "side chain it": "enable_sidechain",
+    "bus it": "route_to_bus",
+    "print it": "bounce_in_place",
+    "commit it": "freeze_track"
+  },
+  
+  "boost_words": [
+    "REAPER", "Pro Tools", "Logic", "Ableton", "Cubase", "Studio One",
+    "FabFilter", "Waves", "Soundtoys", "iZotope", "UAD",
+    "SSL", "API", "Neve", "CLA",
+    "Kontakt", "Serum", "Omnisphere",
+    "track", "channel", "bus", "aux", "send", "return",
+    "fader", "pan", "mute", "solo", "arm",
+    "play", "stop", "record", "loop", "punch"
+  ],
+  
+  "phonetic_corrections": {
+    "reaper": "REAPER",
+    "pro tools": "Pro Tools",
+    "fabric filter": "FabFilter",
+    "pro queue": "Pro-Q",
+    "pro see": "Pro-C",
+    "soundtoys": "Soundtoys",
+    "izotope": "iZotope",
+    "auto tune": "Autotune",
+    "melodine": "Melodyne",
+    "contact": "Kontakt",
+    "serum": "Serum"
+  },
+  
+  "user_custom": {
+    "_comment": "Add your custom phrases and aliases here",
+    "aliases": {},
+    "boost_words": [],
+    "pronunciations": {}
+  }
+}
+
+
+
+
+

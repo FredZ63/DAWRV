@@ -1,0 +1,31 @@
+# DAWRV ASR Requirements
+# ======================
+# Install with: pip install -r requirements.txt
+
+# Core ASR
+openai-whisper>=20231117
+# OR faster-whisper for better performance:
+# faster-whisper>=0.10.0
+
+# Audio Processing
+numpy>=1.24.0
+pyaudio>=0.2.13
+soundfile>=0.12.0
+
+# Voice Activity Detection (optional but recommended)
+webrtcvad>=2.0.10
+
+# For GPU acceleration (optional)
+# torch>=2.0.0
+# Install CUDA version: pip install torch --index-url https://download.pytorch.org/whl/cu118
+
+# Utilities
+typing_extensions>=4.0.0
+
+# Development/Testing
+pytest>=7.0.0
+
+
+
+
+

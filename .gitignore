@@ -24,6 +24,12 @@ dmg_contents/
 __pycache__/
 *.pyc
 *.pyo
+
+# Local ML / media caches (do not commit)
+python/cache/
+python/models/
+*.pth
+*.aiff
 .deepgram-key
 .env
 voice-engine/vosk/models/*

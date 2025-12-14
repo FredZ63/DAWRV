@@ -1,0 +1,365 @@
+{
+  "name": "REAPER Knowledge Base for RHEA",
+  "version": "1.0",
+  "created": "2024",
+  "categories": [
+    {
+      "name": "Mixing Fundamentals",
+      "entries": [
+        {
+          "topic": "Gain Staging",
+          "content": "Proper gain staging in REAPER: Aim for -18dBFS to -12dBFS on individual tracks for optimal headroom. Use the track trim/gain before the fader for initial level setting. Keep the master fader at 0dB and adjust individual tracks instead. Watch for red meters indicating clipping.",
+          "tips": ["Set input gain so peaks hit around -12dB", "Leave headroom for mixing", "Use VU meters for average levels"]
+        },
+        {
+          "topic": "EQ Basics",
+          "content": "EQ tips for mixing: Cut before boost - remove unwanted frequencies before adding. High-pass filter vocals around 80-100Hz to remove rumble. Cut muddy frequencies around 200-400Hz. Boost presence in vocals around 3-5kHz. Use narrow Q for cutting, wide Q for boosting.",
+          "tips": ["High-pass everything except bass and kick", "Cut mud at 200-500Hz", "Add air at 10-12kHz for brightness"]
+        },
+        {
+          "topic": "Compression",
+          "content": "Compression settings guide: For vocals use 3:1 to 4:1 ratio, medium attack (10-30ms), medium release. For drums use faster attack, 4:1 to 8:1 ratio. For bass use slower attack to preserve transients. Aim for 3-6dB of gain reduction on most sources.",
+          "tips": ["Slower attack = more punch", "Faster release = more aggressive", "Use makeup gain to match levels"]
+        },
+        {
+          "topic": "Reverb and Delay",
+          "content": "Reverb tips: Use sends instead of inserts for reverb. Pre-delay of 20-40ms helps clarity. Short reverb (0.5-1s) for intimate, long reverb (2-4s) for epic. Roll off low frequencies on reverb returns. Delay times: 1/4 note, 1/8 note, or sync to tempo.",
+          "tips": ["Send to reverb bus, don't insert on tracks", "Use pre-delay to separate dry signal", "EQ your reverb returns"]
+        },
+        {
+          "topic": "Panning",
+          "content": "Panning strategies: Keep bass, kick, snare, and lead vocals centered. Pan guitars left and right (hard pan or 50-70%). Double-tracked parts should be panned opposite. Use LCR (Left-Center-Right) panning for clarity. Pan background vocals wide.",
+          "tips": ["Center = powerful, Wide = spacious", "Mirror panning for balance", "Automate panning for movement"]
+        }
+      ]
+    },
+    {
+      "name": "Recording",
+      "entries": [
+        {
+          "topic": "Input Setup",
+          "content": "Setting up recording in REAPER: Go to track, click input dropdown to select audio input. Enable record arm (R button). Enable input monitoring to hear yourself. Set buffer size lower (128-256) for less latency during recording. Use direct monitoring from interface if latency is an issue.",
+          "commands": ["arm track", "enable monitoring", "record"]
+        },
+        {
+          "topic": "Punch Recording",
+          "content": "Punch-in recording: Set time selection over the section to re-record. Enable 'Auto-punch' in transport. Press record - it will only record within the selection. Use pre-roll to hear context before punch point. Alt+click on timeline for quick time selection.",
+          "commands": ["set punch in", "set punch out", "record"]
+        },
+        {
+          "topic": "Loop Recording",
+          "content": "Loop recording for multiple takes: Set loop points with time selection. Enable loop in transport. Record multiple passes - REAPER creates take lanes. Use Ctrl+click to audition different takes. Right-click take lane to comp best parts.",
+          "commands": ["toggle loop", "record", "next take", "previous take"]
+        },
+        {
+          "topic": "Recording Modes",
+          "content": "REAPER recording modes: Normal mode - record to new items. Overdub mode - layer on top of existing. Replace mode - replace existing audio. Time selection auto-punch - only record in selection. Use Options menu to change recording behavior.",
+          "commands": ["overdub mode", "replace mode", "normal record mode"]
+        }
+      ]
+    },
+    {
+      "name": "Editing",
+      "entries": [
+        {
+          "topic": "Basic Editing",
+          "content": "Essential editing operations: S = split item at cursor. Delete = remove selected item. Ctrl+C/V = copy/paste. G = glue items. Ctrl+Z = undo (unlimited). Hold Shift while dragging for snapping. Double-click item to open in editor.",
+          "shortcuts": {"split": "S", "delete": "Delete", "glue": "G", "undo": "Ctrl+Z", "redo": "Ctrl+Shift+Z"}
+        },
+        {
+          "topic": "Ripple Editing",
+          "content": "Ripple editing modes: Off - items don't move when you delete. Per-track - only items on same track shift. All tracks - all items after edit point shift. Toggle with Alt+Shift+R or button in toolbar. Essential for podcast/dialog editing.",
+          "commands": ["toggle ripple editing", "ripple all tracks", "ripple per track"]
+        },
+        {
+          "topic": "Time Selection",
+          "content": "Working with time selection: Click+drag on timeline to select time. Ctrl+Shift+click for precise selection. Tab to move between transients. Shift+Tab for previous transient. Use time selection for rendering, exporting, or operations.",
+          "shortcuts": {"select_all": "Ctrl+A", "loop_selection": "R"}
+        },
+        {
+          "topic": "Comping Takes",
+          "content": "Comping multiple takes: Record in loop mode to create take lanes. Click on take lane header to expand. Click sections to select best parts from each take. Right-click for 'Crop to active take'. Use Ctrl+L to show lanes.",
+          "tips": ["Use crossfades between comp sections", "Color code your best takes", "Flatten comp when done"]
+        },
+        {
+          "topic": "Fades and Crossfades",
+          "content": "Creating fades: Drag from top corners of item for fade in/out. Select items and press X for auto-crossfade. Double-click fade to edit curve. S-curve for smooth, Linear for quick. Set default fade length in preferences.",
+          "shortcuts": {"crossfade": "X", "fade_editor": "Double-click fade"}
+        }
+      ]
+    },
+    {
+      "name": "Routing",
+      "entries": [
+        {
+          "topic": "Sends and Buses",
+          "content": "Creating sends: Click track routing button (Route). Add new send to destination track. Adjust send level with fader. Pre-fader send = level independent of track fader. Post-fader = follows track fader. Create bus tracks for group processing.",
+          "tips": ["Use sends for reverb and delay", "Create drum bus for parallel compression", "Label your buses clearly"]
+        },
+        {
+          "topic": "Sidechaining",
+          "content": "Setting up sidechain: Add compressor to track (e.g., bass). In compressor, click sidechain input. Route from trigger track (e.g., kick) to compressor sidechain. Adjust compressor threshold and ratio. Classic use: duck bass when kick hits.",
+          "tips": ["Sidechain bass to kick for punch", "Sidechain pads to vocals for clarity", "Use sidechain on reverb for cleaner mix"]
+        },
+        {
+          "topic": "Folder Tracks",
+          "content": "Using folder tracks: Right-click track > Insert folder. Drag tracks into folder. Folder track acts as submix bus. Apply processing to folder to affect all children. Collapse/expand with folder icon. Great for drum groups, vocal stacks.",
+          "commands": ["create folder track", "collapse folder", "expand folder"]
+        },
+        {
+          "topic": "Hardware Outputs",
+          "content": "Routing to hardware: Master track routes to hardware outputs by default. For multiple outputs, use track routing. Create headphone mix on separate output. Use hardware output for external effects sends. Check I/O button in mixer.",
+          "tips": ["Create separate cue mixes for musicians", "Use external hardware via sends", "Check routing with Routing Matrix"]
+        }
+      ]
+    },
+    {
+      "name": "Keyboard Shortcuts",
+      "entries": [
+        {
+          "topic": "Transport",
+          "shortcuts": {
+            "Play/Stop": "Space",
+            "Record": "R or Ctrl+R",
+            "Pause": "Enter",
+            "Go to Start": "W or Home",
+            "Go to End": "End",
+            "Toggle Loop": "R (with selection)",
+            "Toggle Metronome": "Ctrl+Shift+M"
+          }
+        },
+        {
+          "topic": "Navigation",
+          "shortcuts": {
+            "Zoom In": "+ or scroll up",
+            "Zoom Out": "- or scroll down",
+            "Zoom to Selection": "Ctrl+Shift+E",
+            "Zoom to Project": "Ctrl+Shift+A",
+            "Scroll Left": "Alt+Left",
+            "Scroll Right": "Alt+Right",
+            "Next Marker": "]",
+            "Previous Marker": "["
+          }
+        },
+        {
+          "topic": "Editing",
+          "shortcuts": {
+            "Split": "S",
+            "Delete": "Delete",
+            "Cut": "Ctrl+X",
+            "Copy": "Ctrl+C",
+            "Paste": "Ctrl+V",
+            "Undo": "Ctrl+Z",
+            "Redo": "Ctrl+Shift+Z",
+            "Glue": "G",
+            "Duplicate": "Ctrl+D",
+            "Quantize": "Q"
+          }
+        },
+        {
+          "topic": "Tracks",
+          "shortcuts": {
+            "New Track": "Ctrl+T",
+            "Delete Track": "Select + Delete",
+            "Arm Track": "Select track + R",
+            "Solo Track": "Select track + S",
+            "Mute Track": "Select track + M",
+            "Select All Tracks": "Ctrl+A",
+            "Toggle FX": "F",
+            "Track Manager": "Ctrl+Alt+T"
+          }
+        },
+        {
+          "topic": "Mixer",
+          "shortcuts": {
+            "Toggle Mixer": "Ctrl+M",
+            "Toggle Master": "Ctrl+Shift+M",
+            "Scroll Mixer": "Mouse wheel in mixer",
+            "Reset Fader": "Double-click fader",
+            "Fine Adjust": "Ctrl+drag fader"
+          }
+        },
+        {
+          "topic": "Views",
+          "shortcuts": {
+            "Toggle Mixer": "Ctrl+M",
+            "Toggle Big Clock": "Alt+C",
+            "Show FX Chain": "F",
+            "Show Routing": "Alt+R",
+            "Screensets": "1-9 (with Ctrl to save)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "REAPER Action IDs",
+      "description": "Common action IDs for DAWRV commands",
+      "entries": [
+        {
+          "category": "Transport",
+          "actions": {
+            "Play": 1007,
+            "Stop": 1016,
+            "Pause": 1008,
+            "Record": 1013,
+            "Go to Start": 40042,
+            "Go to End": 40043,
+            "Toggle Loop": 1068,
+            "Toggle Metronome": 40364
+          }
+        },
+        {
+          "category": "Tracks",
+          "actions": {
+            "Insert Track": 40001,
+            "Remove Track": 40005,
+            "Duplicate Track": 40062,
+            "Select All Tracks": 40296,
+            "Unselect All": 40297,
+            "Go to Next Track": 40285,
+            "Go to Previous Track": 40286
+          }
+        },
+        {
+          "category": "Editing",
+          "actions": {
+            "Split at Cursor": 40012,
+            "Undo": 40029,
+            "Redo": 40030,
+            "Cut": 40699,
+            "Copy": 40698,
+            "Paste": 40058,
+            "Delete": 40697,
+            "Glue": 40362
+          }
+        },
+        {
+          "category": "Markers",
+          "actions": {
+            "Insert Marker": 40157,
+            "Insert Region": 40174,
+            "Go to Next Marker": 40173,
+            "Go to Previous Marker": 40172,
+            "Rename Marker": 40657
+          }
+        },
+        {
+          "category": "View",
+          "actions": {
+            "Toggle Mixer": 40078,
+            "Zoom In": 1011,
+            "Zoom Out": 1012,
+            "Zoom to Fit": 40031,
+            "Toggle Master Track": 40075,
+            "Show FX Browser": 40271
+          }
+        },
+        {
+          "category": "Mixing",
+          "actions": {
+            "Reset All Faders": 42015,
+            "Solo All Selected": 40729,
+            "Unsolo All": 40340,
+            "Mute All Selected": 40728,
+            "Unmute All": 40339
+          }
+        }
+      ]
+    },
+    {
+      "name": "Troubleshooting",
+      "entries": [
+        {
+          "issue": "No Sound",
+          "solutions": [
+            "Check track is not muted or soloed incorrectly",
+            "Check routing - is track routed to master?",
+            "Check audio device in Preferences > Audio > Device",
+            "Check master fader is not down",
+            "Verify audio interface is selected and working"
+          ]
+        },
+        {
+          "issue": "High Latency",
+          "solutions": [
+            "Lower buffer size in Preferences > Audio > Device",
+            "Use ASIO driver on Windows, Core Audio on Mac",
+            "Disable high-latency plugins during recording",
+            "Use direct monitoring from your interface",
+            "Increase buffer for mixing when latency doesn't matter"
+          ]
+        },
+        {
+          "issue": "CPU Spikes",
+          "solutions": [
+            "Freeze tracks with heavy plugins",
+            "Increase buffer size",
+            "Use track templates to reduce plugin count",
+            "Enable anticipative FX processing",
+            "Bounce/render CPU-heavy tracks"
+          ]
+        },
+        {
+          "issue": "Clicks and Pops",
+          "solutions": [
+            "Increase audio buffer size",
+            "Check for driver conflicts",
+            "Disable Wi-Fi and Bluetooth",
+            "Close other applications",
+            "Check for sample rate mismatches"
+          ]
+        },
+        {
+          "issue": "Can't Record",
+          "solutions": [
+            "Make sure track is armed (red button)",
+            "Check input is selected on track",
+            "Verify input levels in mixer",
+            "Check microphone permissions (Mac)",
+            "Ensure correct input device in preferences"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Pro Tips",
+      "entries": [
+        {
+          "tip": "Use screensets to save window layouts. Press numbers 1-9 to recall, Ctrl+1-9 to save."
+        },
+        {
+          "tip": "Double-click on a fader to reset it to 0dB/center."
+        },
+        {
+          "tip": "Hold Ctrl while dragging for fine adjustment of any control."
+        },
+        {
+          "tip": "Use track templates to save your favorite channel strip setups."
+        },
+        {
+          "tip": "Press Tab to move to next transient, great for navigating drums."
+        },
+        {
+          "tip": "Use SWS extension for powerful additional features like snapshots and notes."
+        },
+        {
+          "tip": "Create a template project with your usual track layout and routing."
+        },
+        {
+          "tip": "Use relative mouse mode in preferences for smoother fader control."
+        },
+        {
+          "tip": "Color code your tracks - right click track > Track color."
+        },
+        {
+          "tip": "Use track folders to organize and submix related tracks."
+        }
+      ]
+    }
+  ]
+}
+
+
+
+
+
