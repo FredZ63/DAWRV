@@ -203,7 +203,7 @@ class ASRConfigUI {
             </div>
             
             <!-- Model Selection -->
-            <div style="margin-bottom: 20px; padding: 20px; background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3); border-radius: 12px;">
+            <div id="whisper-model-section" style="margin-bottom: 20px; padding: 20px; background: rgba(102, 126, 234, 0.1); border: 1px solid rgba(102, 126, 234, 0.3); border-radius: 12px;">
                 <h3 style="color: #667eea; margin: 0 0 15px 0; font-size: 16px;">🧠 Whisper Model</h3>
                 <select id="asr-model-select" style="width: 100%; padding: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: #fff; font-size: 14px;">
                     <option value="tiny">Tiny - Fastest (39M params) ⚡</option>
@@ -212,6 +212,11 @@ class ASRConfigUI {
                     <option value="medium">Medium - High quality (769M params)</option>
                     <option value="large">Large - Best quality (1.5B params) 🏆</option>
                 </select>
+                <div id="whisper-model-disabled-note" style="display:none; margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #00BCD4;">
+                    <div style="color:#80DEEA; font-size: 12px;">
+                        ℹ️ <strong>Deepgram/OpenAI selected:</strong> Whisper model size is <strong>Local Whisper only</strong> and does not apply here.
+                    </div>
+                </div>
                 <div style="margin-top: 10px; display: flex; gap: 15px;">
                     <div style="flex: 1; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; text-align: center;">
                         <div style="color: #aaa; font-size: 11px;">Latency</div>
@@ -457,8 +462,17 @@ class ASRConfigUI {
         const openaiLabel = document.getElementById('engine-openai-label');
         const deepgramConfig = document.getElementById('deepgram-stt-config');
         const openaiConfig = document.getElementById('openai-stt-config');
+        const modelSelect = document.getElementById('asr-model-select');
+        const modelSection = document.getElementById('whisper-model-section');
+        const modelNote = document.getElementById('whisper-model-disabled-note');
         
         const engine = this.config.speechEngine || 'local';
+
+        // Whisper model selection only applies to local whisper.
+        const isLocal = engine === 'local';
+        if (modelSelect) modelSelect.disabled = !isLocal;
+        if (modelSection) modelSection.style.opacity = isLocal ? '1' : '0.55';
+        if (modelNote) modelNote.style.display = isLocal ? 'none' : 'block';
 
         // Reset badges
         localLabel.querySelector('.active-badge')?.remove();
