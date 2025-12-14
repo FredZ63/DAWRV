@@ -37,3 +37,6 @@ voice-engine/vosk/models/*
 !voice-engine/vosk/models/.gitkeep
 ai-training/training-data/*
 !ai-training/training-data/.gitkeep
+
+# Runtime-generated config
+asr/asr_config.json
