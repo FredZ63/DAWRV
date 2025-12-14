@@ -100,6 +100,7 @@ class TTSConfigManager {
                 <select id="wake-mode-select" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: #fff; cursor: pointer; margin-bottom: 12px;">
                     <option value="always">Always require wake phrase (recommended)</option>
                     <option value="playback">Require wake phrase only during playback</option>
+                    <option value="auto">Auto (headset-aware)</option>
                     <option value="off">Off (not recommended)</option>
                 </select>
 
