@@ -201,6 +201,10 @@ class RHEAController {
         this._lastAudioInputLabel = '';
         this.initHeadsetDetection();
 
+        // Safety/UX: always allow STOP commands to pass even if wake gate is enabled.
+        // Worst-case failure mode is the DAW stops (safe), and it dramatically reduces frustration.
+        this._stopCommandRe = /^(stop|stop\s+(playback|playing|transport|recording)|halt)\b/i;
+
         // Failsafe transport inference from playhead movement (covers OSC setups that don't
         // reliably send /play but DO send time/pos updates while playing)
         this._dawPosLastSec = null;
@@ -4467,6 +4471,11 @@ class RHEAController {
         if (this.wakeMode === 'auto') {
             needsWake = effectiveTransportActive && !this.isHeadsetInput;
         }
+
+        // Emergency bypass: allow STOP without wake even if gating is on (safe default).
+        if (needsWake && effectiveTransportActive && this._stopCommandRe.test(raw)) {
+            return { accept: true, transcript: raw, skipWakeCheck: true };
+        }
         if (!needsWake) {
             return { accept: true, transcript: raw, skipWakeCheck: false };
         }
@@ -4475,6 +4484,10 @@ class RHEAController {
         if (!wakeCheck.matched) {
             console.log('🚫 WAKE-GATE BLOCKED VOICE:', {
                 raw,
+                wakeMode: this.wakeMode,
+                isHeadsetInput: !!this.isHeadsetInput,
+                audioInputLabel: this._lastAudioInputLabel || '',
+                assumeHeadset: localStorage.getItem('rhea_headset_assume_isolated') === 'true',
                 isTransportPlaying: !!this.isTransportPlaying,
                 inferredUntilMs: this._dawInferredPlayingUntil || 0,
                 dawStateStale,
@@ -4608,6 +4621,10 @@ class RHEAController {
         let normalizedCommand = (transcript || '').toLowerCase().trim();
 
         if (needsWake) {
+            // Emergency bypass: allow STOP without wake even if gating is on (safe default).
+            if (transportActiveForGate && this._stopCommandRe.test(String(transcript || '').trim())) {
+                // treat as wake-validated
+            } else {
             const wakeCheck = this.checkWakePhrase(transcript || '');
             if (!wakeCheck.matched) {
                 console.log('🔇 Ignoring VOICE command (missing wake phrase while transport active):', transcript);
@@ -4619,6 +4636,7 @@ class RHEAController {
             if (!normalizedCommand) {
                 console.log('🔇 Wake phrase detected but no command content.');
                 return;
+            }
             }
         }
         
