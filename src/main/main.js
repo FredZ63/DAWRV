@@ -2045,6 +2045,87 @@ async function handleTempoCommand(event, command, value) {
 async function handleMeasureCommand(event, command, measure, measureEnd) {
     console.log('📏 execute-measure-command handler called:', command, measure, measureEnd);
     try {
+        // ===============================
+        // Fast-path: Go to bar via ExtState + ReaScript action ID
+        // This avoids REAPER CLI "-run" which is unreliable when REAPER is already running.
+        // ===============================
+        if (command === 'goto' && typeof measure !== 'undefined' && measure !== null) {
+            const barNumber = Number(measure);
+            if (!barNumber || isNaN(barNumber)) {
+                return { success: false, error: 'Invalid bar number' };
+            }
+
+            // Action command ID for dawrv_goto_bar_from_extstate.lua (can be overridden)
+            const GOTO_BAR_ACTION_ID =
+                process.env.DAWRV_GOTO_BAR_ACTION_ID ||
+                '_RS59cea27ab9c1a2647112bdc02955a66e77578452';
+
+            // 1) Set ExtState via REAPER Web Interface
+            const http = require('http');
+            const hosts = ['127.0.0.1', 'localhost'];
+            const setExtState = (host) => new Promise((resolve) => {
+                const pathStr = `/_/EXTSTATE/RHEA/target_bar/${encodeURIComponent(String(barNumber))}`;
+                const req = http.request({ hostname: host, port: 8080, path: pathStr, method: 'GET', timeout: 600 }, (res) => {
+                    res.on('data', () => {});
+                    res.on('end', () => resolve(res.statusCode === 200));
+                });
+                req.on('error', () => resolve(false));
+                req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve(false); });
+                req.end();
+            });
+
+            const runAction = (host) => new Promise((resolve) => {
+                const pathStr = `/_/ACTION/${encodeURIComponent(String(GOTO_BAR_ACTION_ID))}`;
+                const req = http.request({ hostname: host, port: 8080, path: pathStr, method: 'GET', timeout: 800 }, (res) => {
+                    res.on('data', () => {});
+                    res.on('end', () => resolve({ ok: res.statusCode === 200, statusCode: res.statusCode }));
+                });
+                req.on('error', () => resolve({ ok: false, statusCode: 0 }));
+                req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve({ ok: false, statusCode: 0 }); });
+                req.end();
+            });
+
+            let extOk = false;
+            for (const h of hosts) {
+                extOk = await setExtState(h);
+                if (extOk) break;
+            }
+            if (!extOk) {
+                return { success: false, error: 'REAPER Web Interface not reachable on port 8080 (cannot set ExtState)' };
+            }
+
+            // 2) Trigger the script via REAPER Web Interface ACTION endpoint (reliable for ReaScript IDs)
+            let actionRes = { ok: false, statusCode: 0 };
+            for (const h of hosts) {
+                actionRes = await runAction(h);
+                if (actionRes.ok) break;
+            }
+            if (actionRes.ok) {
+                return { success: true };
+            }
+
+            // Fallback: OSC /action/<commandId> (may not work for ReaScript IDs on some OSC configs)
+            try {
+                const dgram = require('dgram');
+                const oscSocket = dgram.createSocket('udp4');
+                const address = `/action/${GOTO_BAR_ACTION_ID}`;
+                let oscData = Buffer.from(address + '\x00', 'utf-8');
+                while (oscData.length % 4 !== 0) oscData = Buffer.concat([oscData, Buffer.from([0])]);
+                // No args
+                oscData = Buffer.concat([oscData, Buffer.from(',\x00\x00\x00', 'utf-8')]);
+
+                return await new Promise((resolve) => {
+                    oscSocket.send(oscData, 8000, '127.0.0.1', (err) => {
+                        oscSocket.close();
+                        if (err) resolve({ success: false, error: `Goto-bar failed. HTTP ACTION status=${actionRes.statusCode || 0}, OSC error=${err.message}` });
+                        else resolve({ success: true });
+                    });
+                });
+            } catch (e) {
+                return { success: false, error: `Goto-bar failed. HTTP ACTION status=${actionRes.statusCode || 0}, OSC unavailable: ${e.message}` };
+            }
+        }
+
         let measureScript;
         if (app.isPackaged) {
             measureScript = path.join(process.resourcesPath, 'reaper_bar_bridge.py');
