@@ -49,7 +49,24 @@ COMMAND_FILE = '/tmp/dawrv_voice_command.txt'
 STATUS_FILE = '/tmp/dawrv_asr_status.json'
 
 
-def write_command_to_file(text: str, confidence: float, mode: str):
+def _write_status_to_file(text: str, confidence: float, mode: str, *, is_final: bool, provider: str = "local"):
+    """Write status JSON for Electron to poll (supports partial + final)."""
+    try:
+        status = {
+            "text": text,
+            "confidence": float(confidence) if confidence is not None else 0.0,
+            "mode": mode,
+            "timestamp": time.time(),
+            "is_final": bool(is_final),
+            "provider": provider,
+        }
+        with open(STATUS_FILE, 'w') as f:
+            json.dump(status, f)
+    except Exception as e:
+        logger.error(f"Error writing status: {e}")
+
+
+def write_command_to_file(text: str, confidence: float, mode: str, *, provider: str = "local"):
     """
     Write command to file for DAWRV Electron app to read.
     This is the simplest integration method.
@@ -57,16 +74,9 @@ def write_command_to_file(text: str, confidence: float, mode: str):
     try:
         with open(COMMAND_FILE, 'w') as f:
             f.write(text)
-        
-        # Also write status
-        status = {
-            "text": text,
-            "confidence": confidence,
-            "mode": mode,
-            "timestamp": time.time()
-        }
-        with open(STATUS_FILE, 'w') as f:
-            json.dump(status, f)
+
+        # Also write status (final)
+        _write_status_to_file(text, confidence, mode, is_final=True, provider=provider)
         
         logger.info(f"📝 Command written: {text}")
     except Exception as e:
@@ -131,7 +141,7 @@ class DAWRVNLUInterface:
         self.stats['executed'] += 1
         
         # Write to command file for DAWRV
-        write_command_to_file(result.transcript, result.confidence, result.mode)
+        write_command_to_file(result.transcript, result.confidence, result.mode, provider=getattr(result, "provider", "local"))
         
         # Fire callback
         if self.on_execute:
@@ -271,7 +281,18 @@ class DAWRVASRIntegration:
         """Handle partial transcript for live feedback"""
         if not self.is_listening:
             return
-        
+
+        # Emit partial status update so Electron/renderer can show live text,
+        # but MUST NOT execute commands from partials.
+        if partial and partial.text:
+            _write_status_to_file(
+                partial.text,
+                getattr(partial, "confidence", 0.0),
+                self.engine.mode.value if self.engine else "command",
+                is_final=False,
+                provider="local",
+            )
+
         if self.on_partial:
             self.on_partial(partial.text)
     

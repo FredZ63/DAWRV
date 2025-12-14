@@ -17,10 +17,18 @@ class ASRService extends EventEmitter {
         this.isRunning = false;
         this.isPaused = false;
         this.config = {
+            provider: 'local', // 'local' (streaming whisper/faster-whisper) | 'deepgram' (cloud streaming)
             modelSize: 'base',
             mode: 'command',
             confidenceThreshold: 0.55,
-            activeProfile: 'default'
+            activeProfile: 'default',
+
+            // Optional: selective second-pass for tricky command-like phrases (local provider only)
+            // Set to '' to disable.
+            secondPassModelSize: 'small',
+            secondPassMaxConfidence: 0.80,
+            secondPassMinImprovement: 0.08,
+            secondPassMaxAudioSeconds: 6.0
         };
         
         // Paths
@@ -99,22 +107,50 @@ class ASRService extends EventEmitter {
             return { success: false, error: 'Python not found' };
         }
         
-        const scriptPath = path.join(this.asrPath, 'asr_to_dawrv.py');
+        // Select provider script
+        let provider = (this.config.provider || 'local').toLowerCase();
+        if (provider === 'deepgram' && !process.env.DEEPGRAM_API_KEY && !process.env.DG_API_KEY) {
+            console.log('⚠️ DEEPGRAM_API_KEY missing; falling back to local ASR');
+            provider = 'local';
+            this.config.provider = 'local';
+        }
+
+        const scriptPath = (provider === 'deepgram')
+            ? path.join(this.asrPath, 'deepgram_to_dawrv.py')
+            : path.join(this.asrPath, 'asr_to_dawrv.py');
         
         // Check if script exists
         if (!fs.existsSync(scriptPath)) {
             return { success: false, error: 'ASR script not found' };
         }
         
-        console.log(`🚀 Starting ASR service with model: ${this.config.modelSize}`);
+        console.log(`🚀 Starting ASR service (${provider}) with model: ${this.config.modelSize}`);
         
         try {
-            this.process = spawn(pythonPath, [
-                scriptPath,
-                '--model', this.config.modelSize
-            ], {
+            const args = [scriptPath];
+            if (provider !== 'deepgram') {
+                args.push('--model', this.config.modelSize);
+            }
+
+            const env = { ...process.env, PYTHONUNBUFFERED: '1' };
+            if (provider === 'deepgram' && this.config.deepgramApiKey && !env.DEEPGRAM_API_KEY) {
+                env.DEEPGRAM_API_KEY = this.config.deepgramApiKey;
+            }
+            if (provider !== 'deepgram') {
+                const spModel = (this.config.secondPassModelSize || '').trim();
+                if (spModel) {
+                    env.DAWRV_SECOND_PASS_MODEL = spModel;
+                    env.DAWRV_SECOND_PASS_MAX_CONF = String(this.config.secondPassMaxConfidence ?? 0.80);
+                    env.DAWRV_SECOND_PASS_MIN_IMPROVEMENT = String(this.config.secondPassMinImprovement ?? 0.08);
+                    env.DAWRV_SECOND_PASS_MAX_AUDIO_S = String(this.config.secondPassMaxAudioSeconds ?? 6.0);
+                } else {
+                    env.DAWRV_SECOND_PASS_MODEL = '';
+                }
+            }
+
+            this.process = spawn(pythonPath, args, {
                 stdio: ['pipe', 'pipe', 'pipe'],
-                env: { ...process.env, PYTHONUNBUFFERED: '1' }
+                env
             });
             
             this.process.stdout.on('data', (data) => {
@@ -287,7 +323,9 @@ class ASRService extends EventEmitter {
                         text: data.text,
                         confidence: data.confidence,
                         mode: data.mode,
-                        timestamp: data.timestamp
+                        timestamp: data.timestamp,
+                        isFinal: (data.is_final !== undefined) ? !!data.is_final : true,
+                        provider: data.provider || this.config.provider || 'local'
                     });
                 }
             }
