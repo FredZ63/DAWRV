@@ -3409,9 +3409,17 @@ class RHEAController {
             const bar = parseInt(simpleGotoMatch[1], 10);
             console.log(`🎯 Going to bar ${bar}`);
             if (window.api && window.api.executeMeasureCommand) {
-                await window.api.executeMeasureCommand('goto', bar);
+                const res = await window.api.executeMeasureCommand('goto', bar);
+                if (res && res.success === false) {
+                    console.error('❌ Go to bar failed:', res);
+                    try { this.speak(`I couldn't move to bar ${bar}. ${res.error || 'Please check REAPER connection.'}`); } catch (_) {}
+                }
             } else if (window.api && window.api.executeGotoBar) {
-                await window.api.executeGotoBar(bar);
+                const res = await window.api.executeGotoBar(bar);
+                if (res && res.success === false) {
+                    console.error('❌ Go to bar failed:', res);
+                    try { this.speak(`I couldn't move to bar ${bar}. ${res.error || 'Please check REAPER connection.'}`); } catch (_) {}
+                }
             }
             return;
         }
