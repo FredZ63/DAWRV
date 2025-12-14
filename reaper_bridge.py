@@ -34,65 +34,19 @@ def build_osc_message(path, args):
 
 def execute_reaper_action(action_id):
     """Execute a REAPER action by ID using multiple methods"""
-    # Method 1: Try HTTP API FIRST (most reliable when REAPER is running)
-    try:
-        import urllib.request
-        import time
-        
-        # Activate REAPER first - this helps ensure actions execute
-        try:
-            subprocess.run(['osascript', '-e', 'tell application "REAPER" to activate'], 
-                          timeout=1, capture_output=True)
-            time.sleep(0.1)  # Small delay to ensure Reaper is active
-        except:
-            pass  # Ignore if osascript fails
-        
-        # Try the action URL
-        url = f"http://localhost:8080/_/ACTION/{action_id}"
-        req = urllib.request.Request(url)
-        response = urllib.request.urlopen(req, timeout=3)
-        
-        # Check response status
-        if response.status == 200:
-            # Read response to ensure it's complete
-            response_data = response.read()
-            print(f"✅ REAPER action {action_id} sent via HTTP API (status: {response.status})", file=sys.stderr)
-            # Note: HTTP API returns 200 even if action doesn't execute
-            # Since HTTP API might not actually execute, we'll also try OSC
-            # Don't return True here - let it fall through to try OSC for better reliability
-            print(f"⚠️  HTTP API returned 200, but also trying OSC for reliability...", file=sys.stderr)
-        else:
-            print(f"⚠️  HTTP API returned status {response.status}", file=sys.stderr)
-    except Exception as e:
-        print(f"⚠️  HTTP API failed: {e}", file=sys.stderr)
-        pass
-    
-    # Method 2: Try OSC (Open Sound Control) - REAPER's default OSC port
+    # Method 1: Try OSC FIRST (Open Sound Control) - FASTEST and most reliable!
     try:
         import socket
         
-        # Activate REAPER first (might help with OSC reception)
-        try:
-            subprocess.run(['osascript', '-e', 'tell application "REAPER" to activate'], 
-                          timeout=1, capture_output=True)
-        except:
-            pass  # Ignore if osascript fails
-        
-        # Try multiple OSC formats - REAPER might accept different formats
-        # Format 1: /action/{id} with no arguments (most common)
+        # NO DELAYS - Send OSC immediately for instant execution!
+        # Format 1: /action/{id} with no arguments (most reliable format)
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             message = build_osc_message(f"/action/{action_id}", [])
             sock.sendto(message, ('127.0.0.1', 8000))
             sock.close()
-            print(f"✅ REAPER action {action_id} sent via OSC (format: /action/{action_id})", file=sys.stderr)
-            # Send a second time after a small delay (sometimes helps)
-            import time
-            time.sleep(0.1)
-            sock2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock2.sendto(message, ('127.0.0.1', 8000))
-            sock2.close()
-            return True
+            print(f"✅ REAPER action {action_id} sent via OSC (instant execution)", file=sys.stderr)
+            return True  # Success!
         except Exception as e:
             print(f"⚠️  OSC format 1 failed: {e}", file=sys.stderr)
             pass
@@ -123,7 +77,23 @@ def execute_reaper_action(action_id):
         print(f"⚠️  OSC failed: {e}", file=sys.stderr)
         pass
     
-    # Method 3: Fallback - Use temporary Lua script file (less reliable when REAPER is already running)
+    # Method 2: Try HTTP API as fallback (no delays)
+    try:
+        import urllib.request
+        
+        url = f"http://localhost:8080/_/ACTION/{action_id}"
+        req = urllib.request.Request(url)
+        response = urllib.request.urlopen(req, timeout=2)  # Fast timeout
+        
+        if response.status == 200:
+            response.read()  # Read response to complete request
+            print(f"✅ REAPER action {action_id} sent via HTTP API", file=sys.stderr)
+            return True
+    except Exception as e:
+        print(f"⚠️  HTTP API failed: {e}", file=sys.stderr)
+        pass
+    
+    # Method 3: Last resort - Use temporary Lua script file (slowest, but most compatible)
     import tempfile
     temp_dir = tempfile.gettempdir()
     temp_script = os.path.join(temp_dir, f"rhea_action_{action_id}_{os.getpid()}.lua")

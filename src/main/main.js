@@ -6,7 +6,31 @@ const os = require('os');
 const MIDI2Service = require('./midi2-service');
 const PluginService = require('./plugin-service');
 const DAWStateService = require('./daw-state-service');
+const ScreenAwarenessSystem = require('./screen-awareness');
+const ContextManager = require('./context-manager');
+const ReaScriptService = require('./reascript-service');
+const ControlLearningService = require('./control-learning-service');
+const ASRService = require('./asr-service');
 const http = require('http');
+
+// ---------------------------------------------------------------------------
+// SAFE CONSOLE (prevents EPIPE when stdout/stderr are gone)
+// ---------------------------------------------------------------------------
+(() => {
+    const origLog = console.log;
+    const origError = console.error;
+    const safeWrite = (fn, args) => {
+        try {
+            fn.apply(console, args);
+        } catch (err) {
+            if (!(err && err.code === 'EPIPE')) {
+                try { origError('console write failed:', err); } catch (_) {}
+            }
+        }
+    };
+    console.log = (...args) => safeWrite(origLog, args);
+    console.error = (...args) => safeWrite(origError, args);
+})();
 
 class DAWRVApp {
     constructor() {
@@ -31,6 +55,122 @@ class DAWRVApp {
         } catch (error) {
             console.error('❌ Failed to create PluginService:', error);
             this.pluginService = null;
+        }
+        
+        // Initialize Screen Awareness and Context Manager
+        console.log('🖱️  Creating Screen Awareness System...');
+        try {
+            this.screenAwareness = new ScreenAwarenessSystem();
+            this.contextManager = new ContextManager();
+            this.reaScriptService = new ReaScriptService();
+            this.controlLearning = new ControlLearningService();
+            console.log('✅ Screen Awareness System created');
+            console.log('✅ ReaScript Service created');
+            console.log('✅ Control Learning Service created');
+            
+            // Initialize Advanced ASR Service
+            this.asrService = new ASRService();
+            console.log('✅ ASR Service created');
+            
+            // Connect ASR events to renderer
+            this.asrService.on('transcript', (data) => {
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('asr-transcript', data);
+                    // Also send as voice-command for compatibility
+                    this.mainWindow.webContents.send('voice-command', data.text);
+                }
+            });
+            
+            this.asrService.on('started', () => {
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('asr-started');
+                }
+            });
+            
+            this.asrService.on('stopped', (code) => {
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('asr-stopped', code);
+                }
+            });
+            
+            this.asrService.on('error', (error) => {
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('asr-error', error);
+                }
+            });
+            
+            this.asrService.on('modeChanged', (mode) => {
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('asr-mode-changed', mode);
+                }
+            });
+            
+            // Connect screen awareness to context manager
+            this.screenAwareness.on('element-detected', (element) => {
+                this.contextManager.setActiveControl(element);
+                
+                // Forward to renderer for announcement
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('screen-element-detected', element);
+                }
+            });
+            
+            this.screenAwareness.on('control-activated', (element) => {
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('screen-control-activated', element);
+                }
+            });
+            
+            // Connect ReaScript service to renderer for accurate control detection
+            this.reaScriptService.on('control-touched', (controlInfo) => {
+                // DEBUG: Log context to verify Mixer vs Arrange detection
+                console.log('🎛️  ReaScript control touched:', {
+                    control_type: controlInfo.control_type,
+                    context: controlInfo.context,  // Should be "mcp" for Mixer, "tcp" for Arrange
+                    track_number: controlInfo.track_number
+                });
+                
+                // Feed to learning service (hover detection)
+                this.controlLearning.onHover(controlInfo);
+                
+                // Get smart identification with learning
+                const identification = this.controlLearning.getControlIdentification(controlInfo);
+                
+                console.log(`🧠 Smart ID: "${identification.announcement}" (context: ${controlInfo.context}, confidence: ${(identification.prediction.confidence * 100).toFixed(0)}%)`);
+                
+                if (this.mainWindow) {
+                    // Send both original and smart identification
+                    this.mainWindow.webContents.send('reascript-control-touched', controlInfo);
+                    this.mainWindow.webContents.send('control-detected-smart', identification);
+                }
+            });
+            
+            // Learn from click events detected by ReaScript!
+            this.reaScriptService.on('control-clicked', (controlInfo) => {
+                console.log('🖱️  Control CLICKED - LEARNING!', controlInfo);
+                
+                // Feed to learning service
+                this.controlLearning.onClick(controlInfo);
+                
+                // Get updated identification after learning
+                const identification = this.controlLearning.getControlIdentification(controlInfo);
+                
+                console.log(`🎓 LEARNED! New confidence: ${(identification.prediction.confidence * 100).toFixed(0)}%`);
+                
+                // Announce the learned control
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('control-learned', {
+                        controlInfo,
+                        identification
+                    });
+                }
+            });
+            
+        } catch (error) {
+            console.error('❌ Failed to create Screen Awareness System:', error);
+            console.error('❌ Error details:', error.stack || error);
+            this.screenAwareness = null;
+            this.contextManager = null;
         }
     }
     
@@ -271,6 +411,130 @@ class DAWRVApp {
         
         console.log('✅ MIDI 2.0 IPC handlers registered');
     }
+    
+    /**
+     * Setup Screen Awareness IPC handlers
+     */
+    setupScreenAwarenessHandlers() {
+        if (!this.screenAwareness || !this.contextManager) {
+            console.warn('⚠️  Screen Awareness not initialized');
+            return;
+        }
+        
+        console.log('🖱️  Setting up Screen Awareness IPC handlers...');
+        
+        // Start screen awareness
+        ipcMain.handle('screen-awareness-start', async (event, options) => {
+            try {
+                await this.screenAwareness.start(options);
+                return { success: true };
+            } catch (error) {
+                console.error('❌ Screen Awareness start error:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Stop screen awareness
+        ipcMain.handle('screen-awareness-stop', async () => {
+            try {
+                this.screenAwareness.stop();
+                return { success: true };
+            } catch (error) {
+                console.error('Screen Awareness stop error:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Check accessibility permission
+        ipcMain.handle('screen-awareness-check-permission', async () => {
+            try {
+                const hasPermission = this.screenAwareness.hasAccessibilityPermission();
+                return { success: true, hasPermission };
+            } catch (error) {
+                console.error('Permission check error:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Request accessibility permission
+        ipcMain.handle('screen-awareness-request-permission', async () => {
+            try {
+                const granted = await this.screenAwareness.requestAccessibilityPermission();
+                return { success: true, granted };
+            } catch (error) {
+                console.error('Permission request error:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Set enabled state
+        ipcMain.handle('screen-awareness-set-enabled', async (event, enabled) => {
+            try {
+                this.screenAwareness.setEnabled(enabled);
+                return { success: true };
+            } catch (error) {
+                console.error('Set enabled error:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Set hover delay
+        ipcMain.handle('screen-awareness-set-hover-delay', async (event, delayMs) => {
+            try {
+                this.screenAwareness.setHoverDelay(delayMs);
+                return { success: true };
+            } catch (error) {
+                console.error('Set hover delay error:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Get active control
+        ipcMain.handle('screen-awareness-get-active-control', async () => {
+            try {
+                const control = this.contextManager.getActiveControl();
+                return { success: true, control };
+            } catch (error) {
+                console.error('Get active control error:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Get active control description
+        ipcMain.handle('screen-awareness-get-description', async () => {
+            try {
+                const description = this.contextManager.getActiveControlDescription();
+                return { success: true, description };
+            } catch (error) {
+                console.error('Get description error:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Get current value
+        ipcMain.handle('screen-awareness-get-value', async () => {
+            try {
+                const value = await this.contextManager.getCurrentValue();
+                return { success: true, value };
+            } catch (error) {
+                console.error('Get value error:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Clear active control
+        ipcMain.handle('screen-awareness-clear', async () => {
+            try {
+                this.contextManager.clearActiveControl();
+                return { success: true };
+            } catch (error) {
+                console.error('Clear control error:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        console.log('✅ Screen Awareness IPC handlers registered');
+    }
 
     createWindow() {
         this.mainWindow = new BrowserWindow({
@@ -287,6 +551,9 @@ class DAWRVApp {
             backgroundColor: '#1a1a2e',
             show: false
         });
+        
+        // Initialize overlay window as null
+        this.overlayWindow = null;
 
         session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
             if (permission === 'media') {
@@ -307,6 +574,12 @@ class DAWRVApp {
         this.mainWindow.once('ready-to-show', () => {
             this.mainWindow.show();
             console.log('✅ DAWRV window ready');
+            
+            // Auto-start ReaScript service for control detection & learning
+            if (this.reaScriptService) {
+                console.log('🎛️  Auto-starting ReaScript service for control learning...');
+                this.reaScriptService.start();
+            }
         });
 
         // Always open DevTools for debugging (you can remove this later)
@@ -318,6 +591,62 @@ class DAWRVApp {
         this.mainWindow.on('closed', () => {
             this.mainWindow = null;
         });
+    }
+
+    createOverlayWindow() {
+        if (this.overlayWindow) {
+            // If overlay already exists, just show and focus it
+            this.overlayWindow.show();
+            this.overlayWindow.focus();
+            return;
+        }
+
+        this.overlayWindow = new BrowserWindow({
+            width: 400,
+            height: 300,
+            frame: false, // Frameless window
+            transparent: true, // Transparent background
+            alwaysOnTop: true, // Always on top of other windows
+            resizable: true,
+            skipTaskbar: true, // Don't show in taskbar
+            webPreferences: {
+                nodeIntegration: true,
+                contextIsolation: false
+            }
+        });
+
+        this.overlayWindow.loadFile(path.join(__dirname, '../renderer/overlay.html'));
+
+        // Keep overlay on top even when other windows are focused
+        this.overlayWindow.setAlwaysOnTop(true, 'floating');
+        this.overlayWindow.setVisibleOnAllWorkspaces(true);
+
+        this.overlayWindow.on('closed', () => {
+            this.overlayWindow = null;
+        });
+
+        console.log('✅ RHEA Overlay window created');
+    }
+
+    toggleOverlayWindow() {
+        if (this.overlayWindow) {
+            if (this.overlayWindow.isVisible()) {
+                this.overlayWindow.hide();
+                console.log('🙈 Overlay hidden');
+            } else {
+                this.overlayWindow.show();
+                this.overlayWindow.focus();
+                console.log('👁️  Overlay shown');
+            }
+        } else {
+            this.createOverlayWindow();
+        }
+    }
+
+    sendToOverlay(channel, data) {
+        if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+            this.overlayWindow.webContents.send(channel, data);
+        }
     }
 
     async requestMicrophonePermission() {
@@ -385,12 +714,12 @@ class DAWRVApp {
             }
         }
         
-        // Use Google Speech Recognition for INSTANT startup (< 1 second)
-        // rhea_voice_listener.py uses FREE Google API - fast, accurate, no model loading!
-        const scriptFilename = 'rhea_voice_listener.py';
+        // Use OpenAI Whisper - FREE, OFFLINE, ACCURATE
+        // rhea_voice_listener_whisper.py - handles music terminology well
+        const scriptFilename = 'rhea_voice_listener_whisper.py';
         
         console.log('🎤 Voice Engine Selection:');
-        console.log('   Selected engine: Google Speech Recognition (FREE, INSTANT)');
+        console.log('   Selected engine: OpenAI Whisper (FREE, OFFLINE, ACCURATE)');
         
         // Resolve script path - handle both development and packaged app
         let scriptPath;
@@ -542,7 +871,7 @@ class DAWRVApp {
             console.log(`❌ Signal: ${signal}`);
             console.log(`❌ Process PID was: ${this.voiceListenerProcess ? this.voiceListenerProcess.pid : 'unknown'}`);
             console.log(`❌ Was listening: ${this.isVoiceListening}`);
-            console.log(`❌ Was using: Google Speech Recognition`);
+            console.log(`❌ Was using: OpenAI Whisper`);
             
             // Show captured output for diagnostics
             if (stdoutBuffer) {
@@ -778,11 +1107,11 @@ class DAWRVApp {
         console.log('   Watching file:', this.voiceCommandFile);
         let checkCount = 0;
         let lastProcessedTime = 0;
-        const fileWatcherCooldown = 1000; // Don't process same command within 1 second
+        const fileWatcherCooldown = 100; // FAST: 100ms cooldown for rapid commands (play/stop)
         
         this.fileWatcherInterval = setInterval(() => {
             checkCount++;
-            if (checkCount % 25 === 0) { // Log every 5 seconds (25 * 200ms)
+            if (checkCount % 100 === 0) { // Log every 5 seconds (100 * 50ms)
                 console.log('👂 File watcher active, check #' + checkCount);
             }
             try {
@@ -849,7 +1178,7 @@ class DAWRVApp {
             } catch (err) {
                 // Ignore file read errors
             }
-        }, 200); // Check every 200ms for faster response
+        }, 50); // INSTANT: Check every 50ms for near-instant response
     }
 
     stopFileWatcher() {
@@ -865,10 +1194,23 @@ class DAWRVApp {
         console.log('📡 ========================================');
         console.log('📡 IPC setup flag:', this.ipcSetup);
         
-        // Prevent multiple setups
+        // Prevent multiple setups - remove existing handlers first
         if (this.ipcSetup) {
-            console.log('📡 IPC already set up, but continuing to ensure handlers are registered...');
-            // Don't return - continue to register handlers (they'll be removed and re-added)
+            console.log('📡 IPC already set up - removing old handlers first...');
+            // Remove all existing handlers to prevent duplicate registration errors
+            const handlers = [
+                'get-all-plugins', 'refresh-plugins', 'scan-vst-paths', 'open-vst-folder-dialog',
+                'discover-plugins', 'get-plugin-stats', 'load-plugin', 'screen-awareness-check-permission',
+                'screen-awareness-request-permission', 'screen-awareness-enable', 'screen-awareness-disable',
+                'screen-awareness-set-interval', 'reascript-enable', 'reascript-disable', 'reascript-set-poll-rate'
+            ];
+            handlers.forEach(handler => {
+                try {
+                    ipcMain.removeHandler(handler);
+                } catch (e) {
+                    // Handler might not exist yet
+                }
+            });
         }
         
         this.ipcSetup = true;
@@ -1170,7 +1512,435 @@ class DAWRVApp {
             }
         }, 500);
         
+        // Setup additional service handlers
+        this.setupPluginHandlers();
+        // NOTE: setupMIDI2Handlers() is already called earlier in setupIPC() at line ~1128
+        // Calling it again here would cause "Attempted to register a second handler" errors
+        this.setupScreenAwarenessHandlers();
+        this.setupReaScriptHandlers();
+        this.setupOverlayHandlers();
+        
         console.log('✅ All IPC handlers setup complete');
+    }
+    
+    /**
+     * Setup ReaScript Service IPC handlers
+     */
+    setupReaScriptHandlers() {
+        console.log('🎛️  Setting up ReaScript IPC handlers...');
+        
+        const { ipcMain } = require('electron');
+        
+        // Voice feedback signal (prevents microphone feedback)
+        ipcMain.handle('signal-speaking', async (event, isSpeaking) => {
+            const fs = require('fs');
+            const signalFile = '/tmp/rhea_speaking';
+            try {
+                if (isSpeaking) {
+                    fs.writeFileSync(signalFile, 'true');
+                    console.log('🔇 Signal: RHEA speaking - mic paused');
+                    // Also pause ASR
+                    if (this.asrService) {
+                        this.asrService.pause();
+                    }
+                } else {
+                    if (fs.existsSync(signalFile)) {
+                        fs.unlinkSync(signalFile);
+                    }
+                    console.log('👂 Signal: RHEA done - mic resumed');
+                    // Also resume ASR
+                    if (this.asrService) {
+                        this.asrService.resume();
+                    }
+                }
+                return { success: true };
+            } catch (error) {
+                console.error('Signal file error:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // ========================================
+        // Voice Engine Mode Management
+        // ========================================
+        // Two modes: 'whisper' (simple) and 'asr' (advanced)
+        // They cannot run simultaneously - switching kills the other
+        
+        this.activeVoiceEngine = null; // 'whisper' or 'asr'
+        
+        // Helper: Kill Whisper listener
+        const killWhisperListener = () => {
+            const { execSync } = require('child_process');
+            try {
+                execSync('pkill -f "rhea_voice_listener_whisper.py" 2>/dev/null || true');
+                console.log('🔪 Killed Whisper listener');
+            } catch (e) {}
+        };
+        
+        // Helper: Start Whisper listener
+        const startWhisperListener = () => {
+            const { spawn } = require('child_process');
+            const whisperPath = path.join(__dirname, '..', '..', 'rhea_voice_listener_whisper.py');
+            const whisperProcess = spawn('python3', [whisperPath], {
+                detached: true,
+                stdio: 'ignore'
+            });
+            whisperProcess.unref();
+            console.log('🎤 Started Whisper listener');
+            return { success: true };
+        };
+        
+        // Switch to Whisper mode (kills ASR if running)
+        ipcMain.handle('voice-engine-start-whisper', async () => {
+            try {
+                console.log('🔄 Switching to Whisper mode...');
+                
+                // Stop ASR if running
+                if (this.asrService && this.asrService.isRunning) {
+                    console.log('🔪 Stopping ASR service first...');
+                    this.asrService.stop();
+                }
+                
+                // Clear signal files
+                const fs = require('fs');
+                try { fs.unlinkSync('/tmp/rhea_speaking'); } catch (e) {}
+                
+                // Start Whisper listener process
+                startWhisperListener();
+                this.activeVoiceEngine = 'whisper';
+                
+                // START THE FILE WATCHER - This reads commands from the file!
+                console.log('👂 Starting file watcher for Whisper commands...');
+                this.startFileWatcher();
+                
+                // Notify renderer
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('voice-engine-changed', 'whisper');
+                }
+                
+                return { success: true, engine: 'whisper' };
+            } catch (error) {
+                console.error('❌ Error starting Whisper:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Switch to ASR mode (kills Whisper if running)
+        ipcMain.handle('voice-engine-start-asr', async (event, config) => {
+            try {
+                console.log('🔄 Switching to ASR mode...');
+                console.log('   Config:', config);
+                
+                // Kill existing Whisper listener first
+                killWhisperListener();
+                
+                // Clear signal files
+                const fs = require('fs');
+                try { fs.unlinkSync('/tmp/rhea_speaking'); } catch (e) {}
+                try { fs.unlinkSync('/tmp/dawrv_voice_command.txt'); } catch (e) {}
+                
+                // For now, ASR uses the same Whisper listener but with different settings
+                // The main difference is model size (can use larger models)
+                const modelSize = config?.modelSize || 'base';
+                console.log(`🎤 Starting ASR with model: ${modelSize}`);
+                
+                // Start Whisper listener (same as regular mode but with ASR flag)
+                startWhisperListener();
+                
+                // Start file watcher to read commands
+                this.startFileWatcher();
+                
+                this.activeVoiceEngine = 'asr';
+                
+                // Notify renderer
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('voice-engine-changed', 'asr');
+                }
+                
+                return { success: true, message: 'ASR started (using enhanced Whisper)' };
+            } catch (error) {
+                console.error('❌ Error starting ASR:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Stop all voice engines
+        ipcMain.handle('voice-engine-stop-all', async () => {
+            try {
+                killWhisperListener();
+                if (this.asrService && this.asrService.isRunning) {
+                    this.asrService.stop();
+                }
+                this.activeVoiceEngine = null;
+                
+                // Notify renderer
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send('voice-engine-changed', null);
+                }
+                
+                return { success: true };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Get active voice engine
+        ipcMain.handle('voice-engine-get-active', async () => {
+            return { engine: this.activeVoiceEngine };
+        });
+        
+        // ========================================
+        // Advanced ASR Service IPC Handlers (Legacy - now use voice-engine-start-asr)
+        // ========================================
+        
+        ipcMain.handle('asr-start', async (event, config) => {
+            // Redirect to new unified handler
+            return await ipcMain.listeners('voice-engine-start-asr')[0]?.call(this, event, config) 
+                || { success: false, error: 'Handler not found' };
+        });
+        
+        ipcMain.handle('asr-stop', async () => {
+            try {
+                if (this.asrService) {
+                    const result = this.asrService.stop();
+                    this.activeVoiceEngine = null;
+                    if (this.mainWindow) {
+                        this.mainWindow.webContents.send('voice-engine-changed', null);
+                    }
+                    return result;
+                }
+                return { success: false, error: 'ASR service not available' };
+            } catch (error) {
+                console.error('❌ Error stopping ASR:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        ipcMain.handle('asr-pause', async () => {
+            try {
+                if (this.asrService) {
+                    this.asrService.pause();
+                    return { success: true };
+                }
+                return { success: false, error: 'ASR service not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+        
+        ipcMain.handle('asr-resume', async () => {
+            try {
+                if (this.asrService) {
+                    this.asrService.resume();
+                    return { success: true };
+                }
+                return { success: false, error: 'ASR service not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+        
+        ipcMain.handle('asr-get-status', async () => {
+            try {
+                if (this.asrService) {
+                    return this.asrService.getStatus();
+                }
+                return { isRunning: false, isPaused: false, config: {} };
+            } catch (error) {
+                return { isRunning: false, error: error.message };
+            }
+        });
+        
+        ipcMain.handle('asr-set-mode', async (event, mode) => {
+            try {
+                if (this.asrService) {
+                    this.asrService.setMode(mode);
+                    return { success: true, mode };
+                }
+                return { success: false, error: 'ASR service not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+        
+        ipcMain.handle('asr-set-model', async (event, modelSize) => {
+            try {
+                if (this.asrService) {
+                    this.asrService.setModelSize(modelSize);
+                    return { success: true, modelSize };
+                }
+                return { success: false, error: 'ASR service not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+        
+        ipcMain.handle('asr-update-config', async (event, config) => {
+            try {
+                if (this.asrService) {
+                    Object.assign(this.asrService.config, config);
+                    this.asrService.saveConfig();
+                    return { success: true };
+                }
+                return { success: false, error: 'ASR service not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+        
+        ipcMain.handle('asr-get-vocabulary', async () => {
+            try {
+                if (this.asrService) {
+                    return this.asrService.getVocabulary();
+                }
+                return null;
+            } catch (error) {
+                return null;
+            }
+        });
+        
+        ipcMain.handle('asr-update-vocabulary', async (event, vocab) => {
+            try {
+                if (this.asrService) {
+                    return this.asrService.updateVocabulary(vocab);
+                }
+                return { success: false, error: 'ASR service not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+        
+        ipcMain.handle('asr-get-profiles', async () => {
+            try {
+                if (this.asrService) {
+                    return this.asrService.getProfiles();
+                }
+                return [];
+            } catch (error) {
+                return [];
+            }
+        });
+        
+        ipcMain.handle('asr-set-active-profile', async (event, profileName) => {
+            try {
+                if (this.asrService) {
+                    this.asrService.setActiveProfile(profileName);
+                    return { success: true };
+                }
+                return { success: false, error: 'ASR service not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Start ReaScript polling
+        ipcMain.handle('reascript-start', async () => {
+            try {
+                if (this.reaScriptService) {
+                    this.reaScriptService.start();
+                    return { success: true };
+                }
+                return { success: false, error: 'ReaScript service not available' };
+            } catch (error) {
+                console.error('❌ Error starting ReaScript service:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Stop ReaScript polling
+        ipcMain.handle('reascript-stop', async () => {
+            try {
+                if (this.reaScriptService) {
+                    this.reaScriptService.stop();
+                    return { success: true };
+                }
+                return { success: false, error: 'ReaScript service not available' };
+            } catch (error) {
+                console.error('❌ Error stopping ReaScript service:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        // Set polling rate
+        ipcMain.handle('reascript-set-poll-rate', async (event, pollRate) => {
+            try {
+                if (this.reaScriptService) {
+                    this.reaScriptService.setPollRate(pollRate);
+                    return { success: true };
+                }
+                return { success: false, error: 'ReaScript service not available' };
+            } catch (error) {
+                console.error('❌ Error setting ReaScript poll rate:', error);
+                return { success: false, error: error.message };
+            }
+        });
+        
+        console.log('✅ ReaScript IPC handlers registered');
+    }
+    
+    /**
+     * Setup Overlay Window IPC handlers
+     */
+    setupOverlayHandlers() {
+        console.log('🎨 Setting up Overlay IPC handlers...');
+        
+        const { ipcMain } = require('electron');
+        
+        // Toggle overlay window
+        ipcMain.on('overlay-toggle', () => {
+            this.toggleOverlayWindow();
+        });
+        
+        // Show overlay window
+        ipcMain.on('overlay-show', () => {
+            if (!this.overlayWindow) {
+                this.createOverlayWindow();
+            } else {
+                this.overlayWindow.show();
+                this.overlayWindow.focus();
+            }
+        });
+        
+        // Close overlay from overlay window
+        ipcMain.on('overlay-close', () => {
+            if (this.overlayWindow) {
+                this.overlayWindow.hide();
+            }
+        });
+        
+        // Minimize overlay
+        ipcMain.on('overlay-minimize', () => {
+            if (this.overlayWindow) {
+                this.overlayWindow.minimize();
+            }
+        });
+        
+        // Send speech to overlay
+        ipcMain.on('overlay-update-speech', (event, text) => {
+            this.sendToOverlay('overlay-speech', text);
+        });
+        
+        // Send listening status to overlay
+        ipcMain.on('overlay-update-listening', (event, isListening) => {
+            this.sendToOverlay('overlay-listening', isListening);
+        });
+        
+        // Send screen awareness status to overlay
+        ipcMain.on('overlay-update-screen-awareness', (event, isEnabled) => {
+            this.sendToOverlay('overlay-screen-awareness', isEnabled);
+        });
+        
+        // Send control detection to overlay
+        ipcMain.on('overlay-update-control', (event, controlInfo) => {
+            this.sendToOverlay('overlay-control-detected', controlInfo);
+        });
+        
+        // Send transport state to overlay
+        ipcMain.on('overlay-update-transport', (event, state) => {
+            this.sendToOverlay('overlay-transport-state', state);
+        });
+        
+        console.log('✅ Overlay IPC handlers registered');
     }
 }
 
@@ -1292,11 +2062,18 @@ async function handleMeasureCommand(event, command, measure, measureEnd) {
             }
             
             execFile(pythonCmd, args, { timeout: 4000 }, (error, stdout, stderr) => {
-                if (stdout) {
-                    console.log('📏 Measure command output:', stdout.trim());
-                }
-                if (stderr) {
-                    console.log('📏 Measure command stderr:', stderr.trim());
+                const out = (stdout || '').trim();
+                if (out) console.log('📏 Measure command output:', out);
+                if (stderr) console.log('📏 Measure command stderr:', stderr.trim());
+                
+                if (command === 'barpos') {
+                    // Parse BARPOS_START/END lines
+                    const startMatch = out.match(/BARPOS_START=([0-9.]+)/);
+                    const endMatch = out.match(/BARPOS_END=([0-9.]+)/);
+                    const start = startMatch ? parseFloat(startMatch[1]) : null;
+                    const end = endMatch ? parseFloat(endMatch[1]) : null;
+                    resolve({ success: start != null, start, end });
+                    return;
                 }
                 
                 if (error && error.code !== null && error.code !== 0) {
@@ -1320,127 +2097,21 @@ console.log('📏 Measure handler registered at module load');
 
 console.log('📡 Registering goto-bar handler at module load...');
 
-// Web API: Execute "Go to bar N" via extstate + script action
-// Uses user-provided Action ID for daw-scripts/reaper/scripts/dawrv_goto_bar_from_extstate.lua
-const RHEA_GOTO_BAR_ACTION_ID = '_RS59cea27ab9c1a2647112bdc02955a66e77578452'; // Updated Action ID
+// Execute "Go to bar N" via measure bridge (accurate TimeMap)
 ipcMain.handle('execute-goto-bar', async (event, barNumber) => {
-    console.log('📡 ========================================');
-    console.log('📡 execute-goto-bar IPC handler called!');
-    console.log('📡 Bar number:', barNumber);
-    console.log('📡 Action ID:', RHEA_GOTO_BAR_ACTION_ID);
-    console.log('📡 ========================================');
-    
-    return new Promise((resolve) => {
-        const tryWeb = () => {
-            try {
-                console.log('📡 Using REAPER native Lua script for accurate bar positioning...');
-                if (!barNumber || isNaN(Number(barNumber))) {
-                    console.error('❌ Invalid bar number:', barNumber);
-                    resolve({ success: false, error: 'Invalid bar number' });
-                    return;
-                }
-                
-                // Use REAPER's native TimeMap functions via Lua script
-                // This handles any tempo, time signature changes, and tempo envelopes
-                const port = 8080;
-                
-                // Step 1: Set the target bar in ExtState
-                const setPath = `/_/SET/EXTSTATE/RHEA/target_bar/${encodeURIComponent(String(barNumber))}`;
-                console.log('📡 Setting ExtState RHEA/target_bar to:', barNumber);
-                
-                http.get({ host: '127.0.0.1', port, path: setPath }, (res) => {
-                    let data = '';
-                    res.on('data', chunk => data += chunk);
-                    res.on('end', () => {
-                        console.log('✅ ExtState set, status:', res.statusCode);
-                        
-                        // Step 2: Trigger the Lua script via Action ID
-                        setTimeout(() => {
-                            const actionPath = `/_/${encodeURIComponent(RHEA_GOTO_BAR_ACTION_ID)}`;
-                            console.log('📡 Triggering goto bar script via:', `http://127.0.0.1:${port}${actionPath}`);
-                            
-                            const req = http.get({ host: '127.0.0.1', port, path: actionPath }, (res2) => {
-                                let actionData = '';
-                                res2.on('data', chunk => actionData += chunk);
-                                res2.on('end', () => {
-                                    console.log('✅ Goto bar script triggered, status:', res2.statusCode);
-                                    console.log('📝 Response:', actionData);
-                                    resolve({ success: true });
-                                });
-                            });
-                            
-                            req.on('error', (e) => {
-                                console.error('❌ Failed to trigger goto bar script:', e.message);
-                                console.warn('⚠️  Falling back to CLI method...');
-                                tryCLI();
-                            });
-                            
-                            req.setTimeout(5000, () => {
-                                console.warn('⚠️  Request timeout - falling back to CLI');
-                                tryCLI();
-                            });
-                        }, 100); // Small delay to ensure ExtState is written
-                    });
-                }).on('error', (e) => {
-                    console.error('❌ Failed to set ExtState:', e.message);
-                    console.warn('⚠️  Falling back to CLI method...');
-                    tryCLI();
-                });
-            } catch (e) {
-                console.error('❌ Exception in tryWeb:', e.message);
-                tryCLI();
-            }
-        };
-        
-        const tryCLI = () => {
-            try {
-                const tempDir = os.tmpdir();
-                const scriptPath = path.join(tempDir, `dawrv_goto_bar_from_extstate_wrapper_${Date.now()}.lua`);
-                const lua = `
-reaper.SetExtState("RHEA","target_bar","${String(barNumber)}", true)
-local cmd = reaper.NamedCommandLookup("${RHEA_GOTO_BAR_ACTION_ID}")
-if cmd and cmd ~= 0 then
-  reaper.Main_OnCommand(cmd, 0)
-end
-`;
-                fs.writeFileSync(scriptPath, lua, 'utf8');
-                
-                // Try to bring REAPER front (optional)
-                try {
-                    execSync('osascript -e \'tell application "REAPER" to activate\'', { stdio: 'ignore' });
-                } catch {}
-                
-                // Resolve REAPER binary path
-                let reaperPathCandidates = [
-                    '/Applications/REAPER.app/Contents/MacOS/reaper',
-                    path.join('/', 'Applications', 'REAPER.app', 'Contents', 'MacOS', 'reaper'),
-                    '/Applications/REAPER64.app/Contents/MacOS/reaper'
-                ];
-                let reaperPath = reaperPathCandidates.find(p => fs.existsSync(p));
-                if (!reaperPath) {
-                    resolve({ success: false, error: 'REAPER executable not found at expected paths' });
-                    try { fs.unlinkSync(scriptPath); } catch {}
-                    return;
-                }
-                
-                execFile(reaperPath, ['-nonewinst', '-run', scriptPath], { timeout: 4000 }, (error, stdout, stderr) => {
-                    try { fs.unlinkSync(scriptPath); } catch {}
-                    if (error && error.code !== null && error.code !== 0) {
-                        resolve({ success: false, error: `CLI failed: ${error.message}` });
-                    } else {
-                        resolve({ success: true });
-                    }
-                });
-            } catch (e) {
-                resolve({ success: false, error: `CLI exception: ${e.message}` });
-            }
-        };
-        
-        // Try web first; fallback to CLI
-        tryWeb();
-    });
+    console.log('📡 execute-goto-bar (measure bridge) called:', barNumber);
+    if (!barNumber || isNaN(Number(barNumber))) {
+        return { success: false, error: 'Invalid bar number' };
+    }
+    try {
+        const res = await handleMeasureCommand(null, 'goto', Number(barNumber), null);
+        return res && res.success ? { success: true } : { success: false, error: res?.error || 'goto failed' };
+    } catch (error) {
+        console.error('❌ goto-bar via measure bridge failed:', error);
+        return { success: false, error: error.message };
+    }
 });
-console.log('📡 Goto-bar web handler registered');
+console.log('📡 Goto-bar handler (measure bridge) registered');
 
 // Track Control: Execute track commands via OSC (much more reliable!)
 ipcMain.handle('execute-track-command', async (event, command, trackNumber, value) => {
@@ -1510,45 +2181,9 @@ ipcMain.handle('execute-track-command', async (event, command, trackNumber, valu
                     oscValue = 0;  // 0 = unmute
                     break;
                 case 'solo':
-                    // For exclusive solo, unsolo all tracks first, then solo target
-                    // Action 40340 = Unsolo all tracks
-                    const unsoloSocket = dgram.createSocket('udp4');
-                    let unsoloData = Buffer.from('/action/40340\x00\x00', 'utf-8');
-                    while (unsoloData.length % 4 !== 0) unsoloData = Buffer.concat([unsoloData, Buffer.from([0])]);
-                    unsoloData = Buffer.concat([unsoloData, Buffer.from(',i\x00\x00', 'utf-8')]);
-                    // Add action ID as integer
-                    const unsoloAction = Buffer.allocUnsafe(4);
-                    unsoloAction.writeInt32BE(40340, 0);
-                    unsoloData = Buffer.concat([unsoloData, unsoloAction]);
-                    
-                    unsoloSocket.send(unsoloData, 8000, '127.0.0.1', (err) => {
-                        unsoloSocket.close();
-                        if (err) console.warn('⚠️  Unsolo all failed:', err.message);
-                        
-                        // After unsolo completes, send the solo command
-                        setTimeout(() => {
-                            const soloSocket = dgram.createSocket('udp4');
-                            let soloPath = `/track/${trackNumber}/solo`;
-                            let soloData = Buffer.from(soloPath + '\x00', 'utf-8');
-                            while (soloData.length % 4 !== 0) soloData = Buffer.concat([soloData, Buffer.from([0])]);
-                            soloData = Buffer.concat([soloData, Buffer.from(',i\x00\x00', 'utf-8')]);
-                            const soloVal = Buffer.allocUnsafe(4);
-                            soloVal.writeInt32BE(1, 0);
-                            soloData = Buffer.concat([soloData, soloVal]);
-                            
-                            soloSocket.send(soloData, 8000, '127.0.0.1', (err2) => {
-                                soloSocket.close();
-                                if (err2) {
-                                    console.error('❌ Solo OSC error:', err2);
-                                    resolve({ success: false, error: err2.message });
-                                } else {
-                                    console.log('✅ Track solo command sent via OSC');
-                                    resolve({ success: true });
-                                }
-                            });
-                        }, 100); // 100ms delay
-                    });
-                    return; // Exit early, callback handles resolve
+                    oscPath = `/track/${trackNumber}/solo`;
+                    oscValue = 1;  // 1 = solo
+                    console.log('🎚️ Soloing track:', trackNumber, 'using path:', oscPath);
                     break;
                 case 'unsolo':
                     oscPath = `/track/${trackNumber}/solo`;
@@ -1556,7 +2191,11 @@ ipcMain.handle('execute-track-command', async (event, command, trackNumber, valu
                     break;
                 case 'arm':
                     oscPath = `/track/${trackNumber}/recarm`;
-                    oscValue = 1;  // Toggle (1 will toggle)
+                    oscValue = 1;  // 1 = arm track
+                    break;
+                case 'disarm':
+                    oscPath = `/track/${trackNumber}/recarm`;
+                    oscValue = 0;  // 0 = disarm track
                     break;
                 case 'volume':
                     oscPath = `/track/${trackNumber}/volume`;
@@ -1567,6 +2206,12 @@ ipcMain.handle('execute-track-command', async (event, command, trackNumber, valu
                     oscPath = `/track/${trackNumber}/pan`;
                     // Convert -100 to 100 range to -1 to 1
                     oscValue = value / 100.0;
+                    break;
+                case 'width':
+                    oscPath = `/track/${trackNumber}/width`;
+                    // Width value is already normalized (-1 to 2)
+                    // -1 = mono, 1 = stereo, >1 = wide
+                    oscValue = value;
                     break;
                 default:
                     console.error('❌ Unknown track command:', command);
@@ -1622,6 +2267,10 @@ try {
     dawrvApp.dawStateService.on('state', (state) => {
         if (dawrvApp.mainWindow) {
             dawrvApp.mainWindow.webContents.send('daw-state-update', state);
+        }
+        // Update context manager with REAPER state
+        if (dawrvApp.contextManager) {
+            dawrvApp.contextManager.updateReaperState(state);
         }
     });
     dawrvApp.dawStateService.on('error', (err) => {

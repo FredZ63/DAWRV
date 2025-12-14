@@ -121,6 +121,14 @@ elseif command == "nudge_bars" then
     qn = qn + (timesig_num * amount)
     local new_pos = reaper.TimeMap2_QNToTime(0, qn)
     set_cursor_position(new_pos, false)
+elseif command == "barpos" then
+    local start_pos, end_pos = get_measure_times(measureA)
+    if start_pos then
+        reaper.ShowConsoleMsg(string.format("BARPOS_START=%.6f\n", start_pos))
+    end
+    if end_pos then
+        reaper.ShowConsoleMsg(string.format("BARPOS_END=%.6f\n", end_pos))
+    end
 end
 """
     return lua

@@ -6,12 +6,17 @@
 class TTSProvider {
     constructor(config = {}) {
         this.config = {
-            provider: config.provider || 'browser', // 'browser', 'elevenlabs', 'coqui', 'piper', 'polly', 'google'
+            provider: config.provider || 'openai', // 'openai', 'elevenlabs', 'coqui', 'piper', 'polly', 'google' - NO browser!
             apiKey: config.apiKey || null,
             voiceId: config.voiceId || null,
             model: config.model || null,
             baseURL: config.baseURL || null,
             // Provider-specific settings
+            openai: {
+                voice: config.openai?.voice || 'nova', // alloy, echo, fable, onyx, nova, shimmer
+                model: config.openai?.model || 'tts-1', // tts-1 (fast) or tts-1-hd (high quality)
+                speed: config.openai?.speed || 1.0 // 0.25 to 4.0
+            },
             elevenlabs: {
                 voiceId: config.elevenlabs?.voiceId || '21m00Tcm4TlvDq8ikWAM', // Rachel (default)
                 model: config.elevenlabs?.model || 'eleven_monolingual_v1',
@@ -46,6 +51,8 @@ class TTSProvider {
     async initialize() {
         try {
             switch (this.config.provider) {
+                case 'openai':
+                    return await this.initOpenAI();
                 case 'elevenlabs':
                     return await this.initElevenLabs();
                 case 'coqui':
@@ -63,6 +70,34 @@ class TTSProvider {
         } catch (error) {
             console.error('TTS initialization error:', error);
             return { success: false, error: error.message };
+        }
+    }
+    
+    /**
+     * Initialize OpenAI TTS
+     */
+    async initOpenAI() {
+        if (!this.config.apiKey) {
+            throw new Error('OpenAI API key required');
+        }
+        
+        // Test API key by checking models
+        try {
+            const response = await fetch('https://api.openai.com/v1/models', {
+                headers: {
+                    'Authorization': `Bearer ${this.config.apiKey}`
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`OpenAI API error: ${response.status}`);
+            }
+            
+            this.currentProvider = 'openai';
+            console.log('🎤 OpenAI TTS initialized with voice:', this.config.openai.voice);
+            return { success: true, message: `OpenAI TTS initialized (voice: ${this.config.openai.voice})` };
+        } catch (error) {
+            throw new Error(`OpenAI initialization failed: ${error.message}`);
         }
     }
     
@@ -140,27 +175,128 @@ class TTSProvider {
     async speak(text, options = {}) {
         if (!text || text.trim() === '') return;
         
-        try {
-            switch (this.config.provider) {
-                case 'elevenlabs':
-                    return await this.speakElevenLabs(text, options);
-                case 'coqui':
-                    return await this.speakCoqui(text, options);
-                case 'piper':
-                    return await this.speakPiper(text, options);
-                case 'polly':
-                    return await this.speakPolly(text, options);
-                case 'google':
-                    return await this.speakGoogle(text, options);
-                case 'browser':
-                default:
-                    return await this.speakBrowser(text, options);
-            }
-        } catch (error) {
-            console.error('TTS speak error:', error);
-            // Fallback to browser TTS
-            return await this.speakBrowser(text, options);
+        // Cancel any existing browser speech first
+        if (window.speechSynthesis) {
+            window.speechSynthesis.cancel();
         }
+        
+        switch (this.config.provider) {
+            case 'openai':
+                return await this.speakOpenAI(text, options);
+            case 'elevenlabs':
+                return await this.speakElevenLabs(text, options);
+            case 'coqui':
+                return await this.speakCoqui(text, options);
+            case 'piper':
+                return await this.speakPiper(text, options);
+            case 'polly':
+                return await this.speakPolly(text, options);
+            case 'google':
+                return await this.speakGoogle(text, options);
+            case 'browser':
+            default:
+                return await this.speakBrowser(text, options);
+        }
+        // NOTE: No automatic fallback - errors propagate to caller
+    }
+    
+    /**
+     * Speak using OpenAI TTS (ChatGPT voices)
+     */
+    async speakOpenAI(text, options = {}) {
+        // Cancel any browser TTS first to prevent overlap
+        if (window.speechSynthesis) {
+            window.speechSynthesis.cancel();
+        }
+        
+        const voice = options.voice || this.config.openai.voice || 'nova';
+        const model = options.model || this.config.openai.model || 'tts-1';
+        const speed = options.speed || this.config.openai.speed || 1.0;
+        
+        console.log(`🎤 OpenAI TTS: "${text.substring(0, 50)}..." (voice: ${voice})`);
+        
+        const response = await fetch('https://api.openai.com/v1/audio/speech', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${this.config.apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: model,
+                voice: voice,
+                input: text,
+                speed: speed,
+                response_format: 'mp3'
+            })
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`OpenAI TTS API error: ${response.status} - ${errorText}`);
+        }
+        
+        const audioBlob = await response.blob();
+        console.log('🔊 Playing OpenAI TTS audio...');
+        
+        // Use a more robust audio playback method
+        return await this.playAudioBlobSafe(audioBlob);
+    }
+    
+    /**
+     * Safe audio playback with better error handling
+     */
+    async playAudioBlobSafe(blob) {
+        // Stop any currently playing audio
+        if (this._currentAudio) {
+            this._currentAudio.pause();
+            this._currentAudio.src = '';
+            this._currentAudio = null;
+        }
+        
+        // Cancel browser speech
+        if (window.speechSynthesis) {
+            window.speechSynthesis.cancel();
+        }
+        
+        return new Promise((resolve, reject) => {
+            const audio = new Audio();
+            this._currentAudio = audio;
+            
+            // Create object URL from blob
+            const url = URL.createObjectURL(blob);
+            
+            // Set up event handlers BEFORE setting src
+            audio.oncanplaythrough = () => {
+                console.log('✅ Audio ready to play');
+            };
+            
+            audio.onended = () => {
+                console.log('✅ OpenAI TTS playback completed');
+                URL.revokeObjectURL(url);
+                this._currentAudio = null;
+                resolve();
+            };
+            
+            audio.onerror = (e) => {
+                console.error('❌ Audio playback error:', e);
+                URL.revokeObjectURL(url);
+                this._currentAudio = null;
+                // Don't reject - resolve anyway to prevent double fallback
+                // The caller already got notified via the error log
+                resolve();
+            };
+            
+            // Set source and play
+            audio.src = url;
+            audio.play().then(() => {
+                console.log('▶️ OpenAI audio playing...');
+            }).catch(err => {
+                console.error('❌ Audio play() error:', err);
+                URL.revokeObjectURL(url);
+                this._currentAudio = null;
+                reject(err);
+            });
+        });
     }
     
     /**
@@ -320,17 +456,32 @@ class TTSProvider {
      * Play audio blob
      */
     async playAudioBlob(blob) {
+        // Stop any currently playing TTS audio
+        if (this._currentAudio) {
+            this._currentAudio.pause();
+            this._currentAudio.src = '';
+            this._currentAudio = null;
+        }
+        
+        // Also cancel browser speech
+        if (window.speechSynthesis) {
+            window.speechSynthesis.cancel();
+        }
+        
         return new Promise((resolve, reject) => {
             const audio = new Audio();
+            this._currentAudio = audio; // Track current audio
             const url = URL.createObjectURL(blob);
             
             audio.src = url;
             audio.onended = () => {
                 URL.revokeObjectURL(url);
+                this._currentAudio = null;
                 resolve();
             };
             audio.onerror = (e) => {
                 URL.revokeObjectURL(url);
+                this._currentAudio = null;
                 reject(e);
             };
             

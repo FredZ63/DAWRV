@@ -52,10 +52,11 @@ async def listen_and_transcribe():
     
     print('✅ Microphone initialized', flush=True)
     
-    # Create Deepgram client
+    # Create Deepgram client (SDK v3.7.0)
     try:
         deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-        dg_connection = deepgram.listen.live.v("1")
+        # Use websocket API (recommended over deprecated live API)
+        dg_connection = deepgram.listen.websocket.v("1")
     except Exception as e:
         print(f'❌ Connection failed: {e}', file=sys.stderr, flush=True)
         stream.stop_stream()
@@ -118,9 +119,17 @@ async def listen_and_transcribe():
     dg_connection.on(LiveTranscriptionEvents.Error, on_error)
     dg_connection.on(LiveTranscriptionEvents.Close, on_close)
     
-    # Start the connection
-    if not await dg_connection.start(options):
-        print('❌ Failed to start Deepgram connection', file=sys.stderr, flush=True)
+    # Start the connection (SDK v3.7.0 - start() returns bool, not awaitable)
+    try:
+        started = dg_connection.start(options)
+        if not started:
+            print('❌ Failed to start Deepgram connection', file=sys.stderr, flush=True)
+            stream.stop_stream()
+            stream.close()
+            p.terminate()
+            sys.exit(1)
+    except Exception as e:
+        print(f'❌ Connection start error: {e}', file=sys.stderr, flush=True)
         stream.stop_stream()
         stream.close()
         p.terminate()
@@ -134,7 +143,7 @@ async def listen_and_transcribe():
     try:
         while True:
             data = stream.read(CHUNK, exception_on_overflow=False)
-            await dg_connection.send(data)
+            dg_connection.send(data)  # SDK v3.7.0 - send() is not async
             await asyncio.sleep(0.01)  # Small delay to prevent blocking
     except KeyboardInterrupt:
         print('🛑 Stopping...', flush=True)
@@ -142,7 +151,7 @@ async def listen_and_transcribe():
         print(f'❌ Error in audio loop: {e}', file=sys.stderr, flush=True)
     finally:
         # Clean up
-        await dg_connection.finish()
+        dg_connection.finish()  # SDK v3.7.0 - finish() is not async
         stream.stop_stream()
         stream.close()
         p.terminate()

@@ -12,6 +12,9 @@ class DAWStateService extends EventEmitter {
         this.port = options.port || 8001;
         this.host = options.host || '0.0.0.0';
         this.server = null;
+        this._lastPosSec = null;
+        this._lastPosTs = 0;
+        this._posIdleTimer = null;
         this.lastState = {
             transport: {
                 playing: false,
@@ -39,6 +42,10 @@ class DAWStateService extends EventEmitter {
             try { this.server.close(); } catch {}
             this.server = null;
         }
+        if (this._posIdleTimer) {
+            try { clearTimeout(this._posIdleTimer); } catch {}
+            this._posIdleTimer = null;
+        }
     }
 
     _onMessage(buffer) {
@@ -51,9 +58,36 @@ class DAWStateService extends EventEmitter {
             const t = { ...this.lastState.transport };
             let changed = false;
 
-            if (address === '/play') { t.playing = true; changed = true; }
-            else if (address === '/stop') { t.playing = false; t.recording = false; changed = true; }
-            else if (address === '/record') { t.recording = true; t.playing = true; changed = true; }
+            // Some OSC patterns send /play with an argument (0/1) rather than separate /stop.
+            if (address === '/play') {
+                if (typeof args[0] === 'number') t.playing = args[0] !== 0;
+                else t.playing = true;
+                changed = true;
+            }
+            else if (address === '/stop') {
+                t.playing = false;
+                t.recording = false;
+                changed = true;
+                if (this._posIdleTimer) {
+                    try { clearTimeout(this._posIdleTimer); } catch {}
+                    this._posIdleTimer = null;
+                }
+            }
+            // Some OSC patterns send /record with an argument (0/1)
+            else if (address === '/record') {
+                if (typeof args[0] === 'number') t.recording = args[0] !== 0;
+                else t.recording = true;
+                if (t.recording) t.playing = true;
+                changed = true;
+            }
+            // Optional: /pause (0/1) – treat pause as not playing for our purposes
+            else if (address === '/pause') {
+                if (typeof args[0] === 'number') {
+                    const paused = args[0] !== 0;
+                    if (paused) t.playing = false;
+                    changed = true;
+                }
+            }
             else if (address === '/repeat') { // loop toggle feedback (0/1)
                 if (typeof args[0] === 'number') { t.loopEnabled = args[0] !== 0; changed = true; }
             } else if (address === '/time/pos' || address === '/time' || address === '/time/str') {
@@ -62,6 +96,39 @@ class DAWStateService extends EventEmitter {
                 if (sec !== null) {
                     t.positionSeconds = sec;
                     changed = true;
+
+                    // Heuristic: some OSC configs don't send /play consistently, but do send /time/pos
+                    // while playing. If position is moving, infer playing=true.
+                    const now = Date.now();
+                    const last = this._lastPosSec;
+                    this._lastPosSec = sec;
+                    this._lastPosTs = now;
+
+                    if (last !== null && Math.abs(sec - last) > 0.0005) {
+                        if (!t.playing) {
+                            t.playing = true;
+                            changed = true;
+                        }
+                    }
+
+                    // If we stop receiving /time/pos updates (or they stop changing), assume stopped
+                    // after a short idle timeout (unless recording).
+                    if (this._posIdleTimer) {
+                        try { clearTimeout(this._posIdleTimer); } catch {}
+                    }
+                    this._posIdleTimer = setTimeout(() => {
+                        try {
+                            const cur = this.lastState.transport;
+                            if (cur.recording) return;
+                            const idleMs = Date.now() - (this._lastPosTs || 0);
+                            if (idleMs >= 450 && cur.playing) {
+                                this.lastState.transport = { ...cur, playing: false };
+                                this.emit('state', { transport: this.lastState.transport, _ts: Date.now() });
+                            }
+                        } catch {
+                            // ignore
+                        }
+                    }, 500);
                 }
             }
 

@@ -29,7 +29,7 @@ npm run dev
 ✅ Real-time Command Logging
 🚧 Logic Pro (Coming Soon)
 🚧 Studio One 7 (Coming Soon)
-🚧 MORPHEUS Hardware (NAMM 2026)
+🚧 MORPHEUS Hardware (In Development)
 
 ## Created by Frederick Zimmerman
 Powered by ZIMMTEK Technology | A Soular Sound Product
