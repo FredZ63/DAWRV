@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATLAS - MIDI Patch Librarian Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /**
+         * ATLAS - Premium UI Design System
+         */
+
+        :root {
+            /* Primary Colors */
+            --atlas-blue: #00d4ff;
+            --atlas-purple: #8b5cf6;
+            --atlas-cyan: #06b6d4;
+            --atlas-violet: #7c3aed;
+            
+            /* Gradients */
+            --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gradient-accent: linear-gradient(135deg, #00d4ff 0%, #8b5cf6 100%);
+            --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --gradient-midi2: linear-gradient(135deg, #00d4ff 0%, #06b6d4 100%);
+            
+            /* Backgrounds */
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #13131a;
+            --bg-tertiary: #1a1a24;
+            --bg-elevated: #20202e;
+            --bg-glass: rgba(255, 255, 255, 0.03);
+            --bg-glass-hover: rgba(255, 255, 255, 0.06);
+            
+            /* Text */
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0b2;
+            --text-tertiary: #6b6b80;
+            --text-accent: var(--atlas-blue);
+            
+            /* Borders */
+            --border-primary: rgba(255, 255, 255, 0.08);
+            --border-secondary: rgba(255, 255, 255, 0.05);
+            --border-accent: rgba(0, 212, 255, 0.3);
+            
+            /* Shadows */
+            --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.5);
+            --shadow-xl: 0 20px 50px rgba(0, 0, 0, 0.6);
+            --shadow-glow: 0 0 20px rgba(0, 212, 255, 0.3);
+            --shadow-glow-purple: 0 0 20px rgba(139, 92, 246, 0.3);
+            
+            /* Spacing */
+            --spacing-xs: 0.25rem;
+            --spacing-sm: 0.5rem;
+            --spacing-md: 1rem;
+            --spacing-lg: 1.5rem;
+            --spacing-xl: 2rem;
+            --spacing-2xl: 3rem;
+            
+            /* Border Radius */
+            --radius-sm: 0.25rem;
+            --radius-md: 0.5rem;
+            --radius-lg: 0.75rem;
+            --radius-xl: 1rem;
+            --radius-2xl: 1.5rem;
+            --radius-full: 9999px;
+            
+            /* Transitions */
+            --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-base: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
+            color: var(--text-primary);
+            background: var(--bg-primary);
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+            border-radius: var(--radius-full);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, var(--atlas-blue), var(--atlas-purple));
+            border-radius: var(--radius-full);
+        }
+
+        ::selection {
+            background: var(--atlas-blue);
+            color: var(--bg-primary);
+        }
+
+        /* Header */
+        .app-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: var(--spacing-lg) var(--spacing-xl);
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            position: relative;
+        }
+
+        .app-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: var(--gradient-accent);
+            opacity: 0.5;
+        }
+
+        .header-left h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            background: var(--gradient-accent);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.02em;
+        }
+
+        .tagline {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-top: 0.25rem;
+        }
+
+        .protocol-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: var(--spacing-sm) var(--spacing-lg);
+            background: var(--bg-glass);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-full);
+            backdrop-filter: blur(10px);
+            transition: all var(--transition-base);
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        .protocol-badge::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--gradient-midi2);
+            opacity: 0.1;
+            transition: opacity var(--transition-base);
+        }
+
+        .protocol-badge:hover {
+            background: var(--bg-glass-hover);
+            border-color: var(--border-accent);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .protocol-icon {
+            font-size: 1.25rem;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(1.05); }
+        }
+
+        .protocol-text {
+            font-weight: 600;
+            font-size: 0.875rem;
+            background: var(--gradient-midi2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            position: relative;
+            z-index: 1;
+        }
+
+        .daw-status {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: var(--spacing-sm) var(--spacing-md);
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid #10b981;
+            border-radius: var(--radius-lg);
+            font-size: 0.875rem;
+            color: #10b981;
+        }
+
+        .daw-icon {
+            position: relative;
+        }
+
+        .daw-icon::after {
+            content: '';
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background: #10b981;
+            border-radius: 50%;
+            top: 0;
+            right: 0;
+            box-shadow: 0 0 10px #10b981;
+            animation: blink 2s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .stats {
+            display: flex;
+            gap: var(--spacing-lg);
+            padding: var(--spacing-sm) var(--spacing-md);
+            background: var(--bg-glass);
+            border: 1px solid var(--border-secondary);
+            border-radius: var(--radius-lg);
+            font-size: 0.875rem;
+        }
+
+        .stat-item {
+            color: var(--text-secondary);
+        }
+
+        .stat-item strong {
+            color: var(--text-accent);
+            font-weight: 700;
+            font-size: 1.1em;
+            margin-right: var(--spacing-xs);
+        }
+
+        /* Main Container */
+        .main-container {
+            display: flex;
+            height: calc(100vh - 80px - 40px);
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 320px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-primary);
+            padding: var(--spacing-lg);
+            gap: var(--spacing-lg);
+            overflow-y: auto;
+        }
+
+        .sidebar-section {
+            background: var(--bg-glass);
+            border: 1px solid var(--border-secondary);
+            border-radius: var(--radius-xl);
+            padding: var(--spacing-lg);
+            margin-bottom: var(--spacing-lg);
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--spacing-md);
+        }
+
+        .section-header h2 {
+            font-size: 0.875rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+        }
+
+        .btn-icon {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-glass);
+            border: 1px solid var(--border-secondary);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: all var(--transition-base);
+            font-size: 1rem;
+        }
+
+        .btn-icon:hover {
+            border-color: var(--border-accent);
+            color: var(--text-accent);
+            transform: translateY(-2px) rotate(10deg);
+            box-shadow: var(--shadow-md);
+        }
+
+        /* Device Card */
+        .device-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: var(--spacing-md);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-secondary);
+            border-radius: var(--radius-lg);
+            margin-bottom: var(--spacing-sm);
+            transition: all var(--transition-base);
+            cursor: pointer;
+        }
+
+        .device-card:hover {
+            background: var(--bg-elevated);
+            border-color: var(--border-accent);
+            transform: translateX(4px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .device-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .device-meta {
+            display: flex;
+            gap: var(--spacing-sm);
+            font-size: 0.75rem;
+        }
+
+        .device-manufacturer {
+            color: var(--text-tertiary);
+        }
+
+        .device-protocol {
+            padding: 0.125rem 0.5rem;
+            border-radius: var(--radius-sm);
+            font-weight: 600;
+            font-size: 0.625rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .device-protocol.midi2 {
+            background: rgba(0, 212, 255, 0.15);
+            color: var(--atlas-blue);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+        }
+
+        .device-protocol.midi1 {
+            background: rgba(139, 92, 246, 0.15);
+            color: var(--atlas-purple);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+        }
+
+        .btn-small {
+            padding: 0.375rem 0.75rem;
+            background: var(--gradient-accent);
+            border: none;
+            border-radius: var(--radius-md);
+            color: white;
+            font-weight: 600;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all var(--transition-base);
+        }
+
+        .btn-small:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .quick-actions, .daw-integration {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+        }
+
+        .btn-action {
+            width: 100%;
+            padding: var(--spacing-md);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-secondary);
+            border-radius: var(--radius-lg);
+            color: var(--text-primary);
+            font-weight: 500;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: all var(--transition-base);
+            text-align: left;
+        }
+
+        .btn-action:hover {
+            background: var(--bg-elevated);
+            border-color: var(--border-accent);
+            transform: translateX(4px);
+        }
+
+        /* Content */
+        .content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .toolbar {
+            padding: var(--spacing-lg) var(--spacing-xl);
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-primary);
+        }
+
+        .search-bar {
+            display: flex;
+            gap: var(--spacing-sm);
+            position: relative;
+            margin-bottom: var(--spacing-md);
+        }
+
+        .search-input {
+            flex: 1;
+            padding: var(--spacing-md) var(--spacing-lg);
+            padding-left: 3rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-secondary);
+            border-radius: var(--radius-full);
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            font-family: 'Inter', sans-serif;
+            transition: all var(--transition-base);
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--border-accent);
+            background: var(--bg-elevated);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .search-bar::before {
+            content: '🔍';
+            position: absolute;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 1.25rem;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .filters {
+            display: flex;
+            gap: var(--spacing-sm);
+        }
+
+        .filter-select {
+            padding: var(--spacing-sm) var(--spacing-md);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-secondary);
+            border-radius: var(--radius-lg);
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: all var(--transition-base);
+        }
+
+        .filter-select:hover {
+            border-color: var(--border-accent);
+        }
+
+        /* Patch Browser */
+        .patch-browser {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--spacing-xl);
+        }
+
+        .patch-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: var(--spacing-lg);
+        }
+
+        .patch-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-secondary);
+            border-radius: var(--radius-xl);
+            padding: var(--spacing-lg);
+            transition: all var(--transition-base);
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .patch-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--gradient-accent);
+            opacity: 0;
+            transition: opacity var(--transition-base);
+        }
+
+        .patch-card:hover {
+            border-color: var(--border-accent);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-xl), var(--shadow-glow-purple);
+        }
+
+        .patch-card:hover::before {
+            opacity: 0.05;
+        }
+
+        .patch-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: var(--spacing-md);
+            position: relative;
+            z-index: 1;
+        }
+
+        .patch-name {
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .patch-rating {
+            font-size: 0.875rem;
+        }
+
+        .patch-meta {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-md);
+            position: relative;
+            z-index: 1;
+        }
+
+        .patch-device, .patch-category {
+            padding: 0.25rem 0.75rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-secondary);
+            border-radius: var(--radius-full);
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .patch-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--spacing-xs);
+            margin-bottom: var(--spacing-md);
+            position: relative;
+            z-index: 1;
+        }
+
+        .tag {
+            padding: 0.25rem 0.5rem;
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            border-radius: var(--radius-sm);
+            font-size: 0.625rem;
+            color: var(--atlas-blue);
+            font-weight: 600;
+        }
+
+        .patch-actions {
+            display: flex;
+            gap: var(--spacing-sm);
+            position: relative;
+            z-index: 1;
+        }
+
+        .patch-actions .btn-small {
+            flex: 1;
+        }
+
+        /* Status Bar */
+        .status-bar {
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 var(--spacing-xl);
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-primary);
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="app-header">
+        <div class="header-left">
+            <div>
+                <h1>🏔️ ATLAS</h1>
+                <div class="tagline">Holding Your Patch Universe</div>
+            </div>
+        </div>
+        <div class="header-center">
+            <div class="protocol-badge">
+                <span class="protocol-icon">🎹</span>
+                <span class="protocol-text">MIDI 2.0 ⚡</span>
+            </div>
+        </div>
+        <div class="header-right" style="display: flex; gap: 1rem; align-items: center;">
+            <div class="daw-status">
+                <span class="daw-icon">🔌</span>
+                <span class="daw-text">Connected to REAPER</span>
+            </div>
+            <div class="stats">
+                <span class="stat-item">
+                    <strong>247</strong> patches
+                </span>
+                <span class="stat-item">
+                    <strong>3</strong> devices
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <div class="section-header">
+                    <h2>Devices</h2>
+                    <button class="btn-icon">🔄</button>
+                </div>
+                
+                <div class="device-card">
+                    <div class="device-info">
+                        <div class="device-name">Prophet Rev2</div>
+                        <div class="device-meta">
+                            <span class="device-manufacturer">Sequential</span>
+                            <span class="device-protocol midi2">MIDI 2.0</span>
+                        </div>
+                    </div>
+                    <button class="btn-small">Connect</button>
+                </div>
+
+                <div class="device-card">
+                    <div class="device-info">
+                        <div class="device-name">Moog Subsequent 37</div>
+                        <div class="device-meta">
+                            <span class="device-manufacturer">Moog</span>
+                            <span class="device-protocol midi1">MIDI 1.0</span>
+                        </div>
+                    </div>
+                    <button class="btn-small">Connect</button>
+                </div>
+
+                <div class="device-card">
+                    <div class="device-info">
+                        <div class="device-name">Korg Minilogue XD</div>
+                        <div class="device-meta">
+                            <span class="device-manufacturer">Korg</span>
+                            <span class="device-protocol midi1">MIDI 1.0</span>
+                        </div>
+                    </div>
+                    <button class="btn-small">Connect</button>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-header">
+                    <h2>Quick Actions</h2>
+                </div>
+                <div class="quick-actions">
+                    <button class="btn-action">📝 New Patch</button>
+                    <button class="btn-action">📥 Import</button>
+                    <button class="btn-action">📤 Export</button>
+                    <button class="btn-action">💾 Backup Device</button>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-header">
+                    <h2>DAW Integration</h2>
+                </div>
+                <div class="daw-integration">
+                    <button class="btn-action">🎚️ REAPER</button>
+                    <button class="btn-action">🎛️ Ableton Live</button>
+                    <button class="btn-action">🎵 Logic Pro</button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="content">
+            <!-- Toolbar -->
+            <div class="toolbar">
+                <div class="search-bar">
+                    <input 
+                        type="text" 
+                        class="search-input" 
+                        placeholder="Search patches by name, category, or tags..."
+                    >
+                </div>
+                <div class="filters">
+                    <select class="filter-select">
+                        <option>All Categories</option>
+                        <option>Bass</option>
+                        <option>Lead</option>
+                        <option>Pad</option>
+                        <option>FX</option>
+                    </select>
+                    <select class="filter-select">
+                        <option>All Devices</option>
+                        <option>Prophet Rev2</option>
+                        <option>Moog Subsequent 37</option>
+                        <option>Korg Minilogue XD</option>
+                    </select>
+                    <select class="filter-select">
+                        <option>Recently Used</option>
+                        <option>Name</option>
+                        <option>Rating</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Patch Browser -->
+            <div class="patch-browser">
+                <div class="patch-grid">
+                    <!-- Patch Card 1 -->
+                    <div class="patch-card">
+                        <div class="patch-header">
+                            <h3 class="patch-name">Epic Lead</h3>
+                            <div class="patch-rating">⭐⭐⭐⭐⭐</div>
+                        </div>
+                        <div class="patch-meta">
+                            <span class="patch-device">Prophet Rev2</span>
+                            <span class="patch-category">Lead</span>
+                        </div>
+                        <div class="patch-tags">
+                            <span class="tag">bright</span>
+                            <span class="tag">digital</span>
+                            <span class="tag">reverb</span>
+                        </div>
+                        <div class="patch-actions">
+                            <button class="btn-small">Send</button>
+                            <button class="btn-small">Edit</button>
+                        </div>
+                    </div>
+
+                    <!-- Patch Card 2 -->
+                    <div class="patch-card">
+                        <div class="patch-header">
+                            <h3 class="patch-name">Deep Bass</h3>
+                            <div class="patch-rating">⭐⭐⭐⭐</div>
+                        </div>
+                        <div class="patch-meta">
+                            <span class="patch-device">Moog Subsequent 37</span>
+                            <span class="patch-category">Bass</span>
+                        </div>
+                        <div class="patch-tags">
+                            <span class="tag">dark</span>
+                            <span class="tag">sub</span>
+                            <span class="tag">808</span>
+                        </div>
+                        <div class="patch-actions">
+                            <button class="btn-small">Send</button>
+                            <button class="btn-small">Edit</button>
+                        </div>
+                    </div>
+
+                    <!-- Patch Card 3 -->
+                    <div class="patch-card">
+                        <div class="patch-header">
+                            <h3 class="patch-name">Ambient Pad</h3>
+                            <div class="patch-rating">⭐⭐⭐⭐⭐</div>
+                        </div>
+                        <div class="patch-meta">
+                            <span class="patch-device">Korg Minilogue XD</span>
+                            <span class="patch-category">Pad</span>
+                        </div>
+                        <div class="patch-tags">
+                            <span class="tag">atmospheric</span>
+                            <span class="tag">warm</span>
+                            <span class="tag">lush</span>
+                        </div>
+                        <div class="patch-actions">
+                            <button class="btn-small">Send</button>
+                            <button class="btn-small">Edit</button>
+                        </div>
+                    </div>
+
+                    <!-- Patch Card 4 -->
+                    <div class="patch-card">
+                        <div class="patch-header">
+                            <h3 class="patch-name">Pluck Synth</h3>
+                            <div class="patch-rating">⭐⭐⭐</div>
+                        </div>
+                        <div class="patch-meta">
+                            <span class="patch-device">Prophet Rev2</span>
+                            <span class="patch-category">Lead</span>
+                        </div>
+                        <div class="patch-tags">
+                            <span class="tag">percussive</span>
+                            <span class="tag">sharp</span>
+                        </div>
+                        <div class="patch-actions">
+                            <button class="btn-small">Send</button>
+                            <button class="btn-small">Edit</button>
+                        </div>
+                    </div>
+
+                    <!-- Patch Card 5 -->
+                    <div class="patch-card">
+                        <div class="patch-header">
+                            <h3 class="patch-name">Retro Keys</h3>
+                            <div class="patch-rating">⭐⭐⭐⭐</div>
+                        </div>
+                        <div class="patch-meta">
+                            <span class="patch-device">Korg Minilogue XD</span>
+                            <span class="patch-category">Keys</span>
+                        </div>
+                        <div class="patch-tags">
+                            <span class="tag">vintage</span>
+                            <span class="tag">rhodes</span>
+                            <span class="tag">chorus</span>
+                        </div>
+                        <div class="patch-actions">
+                            <button class="btn-small">Send</button>
+                            <button class="btn-small">Edit</button>
+                        </div>
+                    </div>
+
+                    <!-- Patch Card 6 -->
+                    <div class="patch-card">
+                        <div class="patch-header">
+                            <h3 class="patch-name">Acid Bass</h3>
+                            <div class="patch-rating">⭐⭐⭐⭐⭐</div>
+                        </div>
+                        <div class="patch-meta">
+                            <span class="patch-device">Moog Subsequent 37</span>
+                            <span class="patch-category">Bass</span>
+                        </div>
+                        <div class="patch-tags">
+                            <span class="tag">303</span>
+                            <span class="tag">squelchy</span>
+                            <span class="tag">resonant</span>
+                        </div>
+                        <div class="patch-actions">
+                            <button class="btn-small">Send</button>
+                            <button class="btn-small">Edit</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Status Bar -->
+    <footer class="status-bar">
+        <div class="status-left">
+            <span>✅ Ready • Connected to Prophet Rev2</span>
+        </div>
+        <div class="status-right">
+            <span>Last synced: 2 minutes ago</span>
+        </div>
+    </footer>
+</body>
+</html>
