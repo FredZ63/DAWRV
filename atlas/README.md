@@ -14,9 +14,16 @@ ATLAS is a comprehensive MIDI patch librarian and SysEx manager designed to work
 
 ### Device Integration
 - **Auto-Discovery**: Automatically detect connected MIDI devices
-- **SysEx Transfer**: Bidirectional patch transfer via SysEx
+- **Dual Protocol Support**: MIDI 1.0 (universal compatibility) + MIDI 2.0 (enhanced features)
+- **Auto-Detection**: Automatically uses best available protocol
 - **Multi-Device Support**: Manage multiple synths simultaneously
 - **Device Templates**: Pre-built support for popular synthesizers
+
+### MIDI 2.0 Enhanced Features (When Available)
+- **Query Patches**: Read current patch directly from device
+- **32-bit Precision**: Exact parameter values (not 7-bit approximations)
+- **Bidirectional Communication**: Device state queries and verification
+- **Property Exchange**: Automatic capability discovery
 
 ### Voice Control (via RHEA)
 ```
