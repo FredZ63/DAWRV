@@ -2,7 +2,11 @@
 
 > **"Holding Your Patch Universe"**
 
-ATLAS is a comprehensive MIDI patch librarian and SysEx manager designed to work seamlessly with RHEA (DAW voice control) and MORPHEUS (sampling workstation).
+ATLAS is a comprehensive MIDI patch librarian and SysEx manager available as:
+- **Standalone Application** (macOS, Windows, Linux)
+- **VST/AU Plugin** (Load inside any DAW)
+
+Work independently or integrate seamlessly with REAPER, Ableton, Logic Pro, and more!
 
 ## 🎯 Core Features
 
