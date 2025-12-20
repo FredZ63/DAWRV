@@ -68,8 +68,10 @@
     "electron-builder": "^24.6.4"
   },
   "dependencies": {
-    "better-sqlite3": "^9.2.2",
-    "midi": "^2.0.0",
     "ws": "^8.14.2"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^9.2.2",
+    "midi": "^2.0.0"
   }
 }
