@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATLAS - Patch Manager</title>
+    <link rel="stylesheet" href="styles/atlas.css">
+</head>
+<body>
+    <div class="atlas-container">
+        <!-- Header -->
+        <header class="atlas-header">
+            <div class="atlas-logo">
+                <h1>🏔️ ATLAS</h1>
+                <p class="atlas-tagline">Holding Your Patch Universe</p>
+            </div>
+            <div class="protocol-indicator">
+                <span id="protocol-badge" class="protocol-badge">MIDI 1.0</span>
+                <span id="device-count" class="device-count">0 devices</span>
+            </div>
+        </header>
+
+        <div class="atlas-main">
+            <!-- Sidebar: Devices -->
+            <aside class="atlas-sidebar">
+                <div class="sidebar-section">
+                    <h3>Devices</h3>
+                    <button class="btn-primary" id="scan-devices">🔍 Scan Devices</button>
+                    <div id="device-list" class="device-list">
+                        <p class="empty-state">No devices found. Click "Scan Devices" to discover.</p>
+                    </div>
+                </div>
+                
+                <div class="sidebar-section">
+                    <h3>Quick Stats</h3>
+                    <div id="stats-display" class="stats-display">
+                        <div class="stat-item">
+                            <span class="stat-label">Total Patches</span>
+                            <span class="stat-value" id="total-patches">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Categories</span>
+                            <span class="stat-value" id="total-categories">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Devices</span>
+                            <span class="stat-value" id="total-devices">0</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content: Patch Library -->
+            <main class="atlas-content">
+                <!-- Search Bar -->
+                <div class="search-bar">
+                    <input 
+                        type="text" 
+                        id="search-input" 
+                        placeholder="🔍 Search patches by name, category, or tags..."
+                        class="search-input"
+                    />
+                    <div class="search-filters">
+                        <select id="category-filter" class="filter-select">
+                            <option value="">All Categories</option>
+                        </select>
+                        <select id="device-filter" class="filter-select">
+                            <option value="">All Devices</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Patch Grid -->
+                <div id="patch-grid" class="patch-grid">
+                    <div class="empty-state-large">
+                        <h2>🏔️ Welcome to ATLAS</h2>
+                        <p>Your patch library is empty. Start by:</p>
+                        <ul>
+                            <li>📥 Reading patches from your connected devices</li>
+                            <li>📂 Importing a patch backup file</li>
+                            <li>➕ Creating a new patch manually</li>
+                        </ul>
+                    </div>
+                </div>
+            </main>
+
+            <!-- Right Panel: Patch Details -->
+            <aside class="atlas-details" id="patch-details">
+                <div class="details-empty">
+                    <p>Select a patch to view details</p>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- Voice Command Indicator (if RHEA is active) -->
+    <div id="voice-command-indicator" class="voice-indicator hidden">
+        <span class="voice-icon">🎤</span>
+        <span id="voice-command-text">Listening...</span>
+    </div>
+
+    <!-- Scripts -->
+    <script src="scripts/atlas-ui.js"></script>
+</body>
+</html>
