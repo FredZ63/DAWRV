@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATLAS - MIDI Patch Librarian</title>
+    <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="app-header">
+        <div class="header-left">
+            <h1>🏔️ ATLAS</h1>
+            <span class="tagline">Holding Your Patch Universe</span>
+        </div>
+        <div class="header-center">
+            <div class="protocol-badge" id="protocol-badge">
+                <span class="protocol-icon">🎹</span>
+                <span class="protocol-text">Initializing...</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="daw-status" id="daw-status">
+                <span class="daw-icon">🔌</span>
+                <span class="daw-text">No DAW Connected</span>
+            </div>
+            <div class="stats" id="stats">
+                <span class="stat-item">
+                    <strong id="patch-count">0</strong> patches
+                </span>
+                <span class="stat-item">
+                    <strong id="device-count">0</strong> devices
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        <!-- Sidebar - Device Panel -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <div class="section-header">
+                    <h2>Devices</h2>
+                    <button class="btn-icon" id="refresh-devices" title="Discover Devices">
+                        🔄
+                    </button>
+                </div>
+                <div class="device-list" id="device-list">
+                    <div class="empty-state">
+                        <p>No devices connected</p>
+                        <button class="btn-primary" id="discover-devices">
+                            Discover Devices
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-header">
+                    <h2>Quick Actions</h2>
+                </div>
+                <div class="quick-actions">
+                    <button class="btn-action" id="btn-new-patch">
+                        📝 New Patch
+                    </button>
+                    <button class="btn-action" id="btn-import">
+                        📥 Import
+                    </button>
+                    <button class="btn-action" id="btn-export">
+                        📤 Export
+                    </button>
+                    <button class="btn-action" id="btn-backup">
+                        💾 Backup Device
+                    </button>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-header">
+                    <h2>DAW Integration</h2>
+                </div>
+                <div class="daw-integration">
+                    <button class="btn-daw" data-daw="reaper">
+                        <img src="../assets/icons/reaper-icon.svg" alt="REAPER" class="daw-icon-img">
+                        <span>REAPER</span>
+                    </button>
+                    <button class="btn-daw" data-daw="ableton">
+                        <img src="../assets/icons/ableton-icon.svg" alt="Ableton" class="daw-icon-img">
+                        <span>Ableton Live</span>
+                    </button>
+                    <button class="btn-daw" data-daw="logic">
+                        <img src="../assets/icons/logic-icon.svg" alt="Logic" class="daw-icon-img">
+                        <span>Logic Pro</span>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="content">
+            <!-- Search and Filters -->
+            <div class="toolbar">
+                <div class="search-bar">
+                    <input 
+                        type="text" 
+                        id="search-input" 
+                        placeholder="Search patches by name, category, or tags..." 
+                        class="search-input"
+                    >
+                    <button class="btn-icon" id="search-btn">🔍</button>
+                </div>
+                <div class="filters">
+                    <select id="category-filter" class="filter-select">
+                        <option value="">All Categories</option>
+                    </select>
+                    <select id="device-filter" class="filter-select">
+                        <option value="">All Devices</option>
+                    </select>
+                    <select id="sort-by" class="filter-select">
+                        <option value="lastUsed">Recently Used</option>
+                        <option value="name">Name</option>
+                        <option value="rating">Rating</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Patch Browser -->
+            <div class="patch-browser" id="patch-browser">
+                <div class="empty-state">
+                    <h3>No patches found</h3>
+                    <p>Import patches or read them from your connected devices</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Status Bar -->
+    <footer class="status-bar">
+        <div class="status-left">
+            <span id="status-message">Ready</span>
+        </div>
+        <div class="status-right">
+            <span id="selected-device">No device selected</span>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="scripts/atlas-ui.js"></script>
+</body>
+</html>
