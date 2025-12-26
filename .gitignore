@@ -38,10 +38,8 @@ voice-engine/vosk/models/*
 ai-training/training-data/*
 !ai-training/training-data/.gitkeep
 
-<<<<<<< HEAD
-# Local vendored deps / clones
-python/Wav2Lip/
-=======
 # Runtime-generated config
 asr/asr_config.json
->>>>>>> origin/hybrid-stt-routing
+
+# Local vendored deps / clones
+# (already ignored above, keeping this section for clarity)
