@@ -164,6 +164,35 @@ contextBridge.exposeInMainWorld('plugins', {
     getAll: () => ipcRenderer.invoke('get-all-plugins')
 });
 
+// ATLAS API - Patch Management
+contextBridge.exposeInMainWorld('atlas', {
+    // Device Management
+    discoverDevices: () => ipcRenderer.invoke('atlas-discover-devices'),
+    connectDevice: (deviceId) => ipcRenderer.invoke('atlas-connect-device', deviceId),
+    disconnectDevice: (deviceId) => ipcRenderer.invoke('atlas-disconnect-device', deviceId),
+    getProtocolInfo: () => ipcRenderer.invoke('atlas-get-protocol-info'),
+    
+    // Patch Management
+    savePatch: (patchData) => ipcRenderer.invoke('atlas-save-patch', patchData),
+    loadPatch: (patchId) => ipcRenderer.invoke('atlas-load-patch', patchId),
+    searchPatches: (query) => ipcRenderer.invoke('atlas-search-patches', query),
+    deletePatch: (patchId) => ipcRenderer.invoke('atlas-delete-patch', patchId),
+    
+    // Patch Transfer
+    sendPatchToDevice: (deviceId, patchId, options) => 
+        ipcRenderer.invoke('atlas-send-patch-to-device', deviceId, patchId, options),
+    readPatchFromDevice: (deviceId, saveToDB) => 
+        ipcRenderer.invoke('atlas-read-patch-from-device', deviceId, saveToDB),
+    
+    // Backup/Restore
+    backupDevice: (deviceId) => ipcRenderer.invoke('atlas-backup-device', deviceId),
+    exportPatches: (deviceName) => ipcRenderer.invoke('atlas-export-patches', deviceName),
+    importPatches: (exportData) => ipcRenderer.invoke('atlas-import-patches', exportData),
+    
+    // Statistics
+    getStatistics: () => ipcRenderer.invoke('atlas-get-statistics')
+});
+
 // Overlay API
 contextBridge.exposeInMainWorld('overlay', {
     toggle: () => ipcRenderer.send('overlay-toggle'),
