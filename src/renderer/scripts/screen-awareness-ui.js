@@ -77,10 +77,10 @@ class ScreenAwarenessUI {
                 return;
             }
             
-            // Element detected (hover) - DISABLED: Use REAPER detection instead
-            // window.api.onScreenElementDetected((element) => {
-            //     this.onElementDetected(element);
-            // });
+            // Element detected (hover)
+            window.api.onScreenElementDetected((element) => {
+                this.onElementDetected(element);
+            });
             
             // Control activated (click)
             window.api.onScreenControlActivated((element) => {

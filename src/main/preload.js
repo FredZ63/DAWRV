@@ -123,7 +123,7 @@ contextBridge.exposeInMainWorld('api', {
     
     // Screen Awareness Events
     onScreenElementDetected: (callback) => ipcRenderer.on('screen-element-detected', (event, element) => callback(element)),
-    onScreenControlActivated: (callback) => ipcRenderer.on('screen-control-activated', (element) => callback(element)),
+    onScreenControlActivated: (callback) => ipcRenderer.on('screen-control-activated', (event, element) => callback(element)),
     
     // ReaScript Service
     reaScriptStart: () => ipcRenderer.invoke('reascript-start'),

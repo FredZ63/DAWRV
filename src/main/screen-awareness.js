@@ -167,7 +167,27 @@ class ScreenAwarenessSystem extends EventEmitter {
      */
     startPythonTracker() {
         try {
-            const scriptPath = path.join(__dirname, '..', '..', 'screen_awareness_tracker_smart.py');
+            // Try multiple paths for packaged app compatibility
+            const possiblePaths = [
+                path.join(__dirname, '..', '..', 'screen_awareness_tracker_smart.py'),
+                path.join(process.resourcesPath || '', 'screen_awareness_tracker_smart.py'),
+                path.join(require('electron').app.getAppPath(), 'screen_awareness_tracker_smart.py')
+            ];
+            
+            const fs = require('fs');
+            let scriptPath = null;
+            for (const p of possiblePaths) {
+                if (fs.existsSync(p)) {
+                    scriptPath = p;
+                    break;
+                }
+            }
+            
+            if (!scriptPath) {
+                console.error('❌ Could not find screen_awareness_tracker_smart.py');
+                this.emit('error', { message: 'Python tracker script not found' });
+                return;
+            }
             
             console.log('🐍 Starting Python tracker:', scriptPath);
             
@@ -193,6 +213,14 @@ class ScreenAwarenessSystem extends EventEmitter {
             // Handle stderr
             this.trackerProcess.stderr.on('data', (data) => {
                 console.error('🐍 Tracker error:', data.toString());
+            });
+            
+            // Handle spawn error
+            this.trackerProcess.on('error', (error) => {
+                console.error('❌ Failed to spawn Python tracker:', error);
+                this.emit('error', { message: 'Failed to start screen tracker: ' + error.message });
+                this.isTracking = false;
+                this.trackerProcess = null;
             });
             
             // Handle process exit
@@ -394,21 +422,6 @@ class ScreenAwarenessSystem extends EventEmitter {
         return this.currentElement;
     }
     
-    /**
-     * Enable/disable auto-announce
-     */
-    setEnabled(enabled) {
-        this.isEnabled = enabled;
-        console.log('🖱️  Auto-announce:', enabled ? 'enabled' : 'disabled');
-    }
-    
-    /**
-     * Set hover delay
-     */
-    setHoverDelay(delayMs) {
-        this.hoverDelay = delayMs;
-        console.log('🖱️  Hover delay set to:', delayMs, 'ms');
-    }
 }
 
 module.exports = ScreenAwarenessSystem;
