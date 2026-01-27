@@ -70,15 +70,15 @@ SIGNAL_TIMEOUT = 30  # Auto-clear stuck signal after 30s
 # FIND THE RIGHT MICROPHONE
 # ============================================================================
 def find_microphone():
-    """Find the best microphone - External mic priority (louder signal)"""
+    """Find the best microphone - prioritize headsets and external mics with actual audio"""
+    import audioop
     audio = pyaudio.PyAudio()
     
     print('\n🔍 Finding audio input device...', flush=True)
     
-    macbook_mic = None
-    external_mic = None
+    candidates = []
     
-    # Find available mics
+    # Find available mics and test for audio
     for i in range(audio.get_device_count()):
         try:
             info = audio.get_device_info_by_index(i)
@@ -86,28 +86,61 @@ def find_microphone():
                 name = info['name'].lower()
                 print(f'   [{i}] {info["name"]}', flush=True)
                 
-                if 'macbook' in name or 'built-in' in name:
-                    macbook_mic = i
-                    print(f'       📍 MacBook mic available', flush=True)
-                elif 'external' in name:
-                    external_mic = i
-                    print(f'       📍 External mic available', flush=True)
+                # Skip virtual/bridge devices
+                if 'bridge' in name or 'blackhole' in name or 'soundflower' in name:
+                    print(f'       ⏭️ Skipping virtual device', flush=True)
+                    continue
+                
+                # Quick audio test (0.5 sec)
+                try:
+                    stream = audio.open(format=pyaudio.paInt16, channels=1, rate=16000,
+                                       input=True, input_device_index=i, frames_per_buffer=1024)
+                    max_rms = 0
+                    for _ in range(8):
+                        data = stream.read(1024, exception_on_overflow=False)
+                        rms = audioop.rms(data, 2)
+                        max_rms = max(max_rms, rms)
+                    stream.stop_stream()
+                    stream.close()
+                    
+                    # Priority scoring
+                    priority = 0
+                    if 'external' in name or 'headset' in name or 'usb' in name:
+                        priority = 3  # Highest - external/headset
+                    elif 'macbook' in name or 'built-in' in name:
+                        priority = 1  # Lowest - built-in
+                    else:
+                        priority = 2  # Middle - other
+                    
+                    # Only consider devices with audio signal
+                    if max_rms > 10:
+                        candidates.append((i, name, max_rms, priority))
+                        status = "✅ AUDIO" if max_rms > 150 else "⚠️ quiet"
+                        print(f'       {status} (RMS={max_rms}, priority={priority})', flush=True)
+                    else:
+                        print(f'       ❌ No audio signal', flush=True)
+                except Exception as e:
+                    print(f'       ❌ Cannot open: {e}', flush=True)
         except:
             pass
     
-    # PRIORITY: External mic (usually louder), then MacBook
-    selected = external_mic if external_mic is not None else macbook_mic
+    # Sort by priority (highest first), then by RMS (loudest first)
+    candidates.sort(key=lambda x: (-x[3], -x[2]))
     
-    if selected is None:
+    if candidates:
+        selected = candidates[0][0]
+        print(f'\n   ✅ SELECTED: Device {selected} ({candidates[0][1]}) - RMS={candidates[0][2]}', flush=True)
+    else:
         # Fallback to system default
         try:
             default_info = audio.get_default_input_device_info()
             selected = default_info['index']
+            print(f'\n   ⚠️ FALLBACK to default: Device {selected}', flush=True)
         except:
             selected = 0
+            print(f'\n   ⚠️ FALLBACK to device 0', flush=True)
     
     audio.terminate()
-    print(f'\n   ✅ SELECTED: Device {selected}', flush=True)
     return selected
 
 DEVICE_INDEX = find_microphone()
