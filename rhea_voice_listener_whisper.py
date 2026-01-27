@@ -357,16 +357,35 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 # ============================================================================
-# ECHO/FEEDBACK PREVENTION
+# ECHO/FEEDBACK PREVENTION  
 # ============================================================================
-# Words RHEA might say that we should NEVER interpret as commands
+# Words/phrases RHEA says - NEVER interpret as commands
 RHEA_RESPONSES = [
+    # Short confirmations
     'playing', 'here we go', 'rolling', 'let\'s hear it',
     'stopped', 'holding', 'all stopped', 
     'recording', 'we\'re rolling', 'go ahead',
     'got it', 'on it', 'sure thing', 'okay', 'done',
     'channel', 'soloed', 'muted', 'unmuted',
-    'paused', 'rewinding', 'from the top'
+    'paused', 'rewinding', 'from the top',
+    # Conversational phrases RHEA says
+    'what would you like', 'how can i help', 'is there anything',
+    'let me know', 'here to help', 'would you like me to',
+    'specific goal', 'goal or task', 'aiming to achieve',
+    'setting up tracks', 'adjusting settings', 'guide you through',
+    'focus on', 'anything else', 'help you with',
+    'what should i', 'which track', 'how much', 'where would you',
+]
+
+# Patterns that indicate RHEA is talking (not user command)
+RHEA_PATTERNS = [
+    'would you like',
+    'can i help',
+    'let me',
+    "i'll",
+    "i'm here",
+    'if there',
+    '?',  # Questions = RHEA asking
 ]
 
 def is_echo(text):
@@ -379,10 +398,21 @@ def is_echo(text):
     if len(text_lower) < 3:
         return True
     
-    # Check for RHEA response phrases
+    # Long = likely RHEA speaking, not user command
+    if len(text_lower) > 50:
+        print(f'🔇 Echo: too long ({len(text_lower)} chars)', flush=True)
+        return True
+    
+    # Check RHEA phrases
     for phrase in RHEA_RESPONSES:
         if phrase in text_lower:
-            print(f'🔇 Echo detected: "{text}" matches RHEA phrase "{phrase}"', flush=True)
+            print(f'🔇 Echo: matches phrase "{phrase}"', flush=True)
+            return True
+    
+    # Check RHEA patterns
+    for pattern in RHEA_PATTERNS:
+        if pattern in text_lower:
+            print(f'🔇 Echo: matches pattern "{pattern}"', flush=True)
             return True
     
     return False
@@ -390,8 +420,8 @@ def is_echo(text):
 # Main loop
 last_command = None
 last_time = 0
-COOLDOWN = 2.5  # Longer cooldown to prevent loops
-POST_SPEECH_DELAY = 1.5  # Wait 1.5s after RHEA speaks
+COOLDOWN = 3.0  # Longer cooldown to prevent loops
+POST_SPEECH_DELAY = 2.5  # Wait 1.5s after RHEA speaks
 
 while True:
     try:
