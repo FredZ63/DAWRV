@@ -409,10 +409,10 @@ class ASRService extends EventEmitter {
     startCommandWatcher() {
         if (this.commandWatcher) return;
         
-        // Check for command file every 100ms
+        // Check for command file every 50ms for faster response
         this.commandWatcher = setInterval(() => {
             this.checkCommandFile();
-        }, 100);
+        }, 50);
         
         console.log('👀 Command watcher started');
     }
