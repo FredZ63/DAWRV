@@ -195,7 +195,7 @@ def record_audio():
     pre_buffer = deque(maxlen=PRE_BUFFER_CHUNKS)
     
     speech_frames = []
-    SILENCE_THRESHOLD = 100   # LOWERED - headset mic should easily exceed this with speech
+    SILENCE_THRESHOLD = 85   # LOWERED - headset mic should easily exceed this with speech
     MIN_SPEECH_CHUNKS = 3     # Only need 2 chunks to trigger (faster response)
     MAX_SILENCE_CHUNKS = 8    # End after ~500ms silence
     SKIP_FIRST_CHUNKS = 3     # Skip first few chunks (mic initialization noise)
