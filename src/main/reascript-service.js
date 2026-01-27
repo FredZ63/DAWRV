@@ -13,7 +13,7 @@ class ReaScriptService extends EventEmitter {
         super();
         this.isPolling = false;
         this.pollInterval = null;
-        this.pollRate = 200; // Poll every 200ms
+        this.pollRate = 75; // Poll every 75ms for responsive detection
         this.lastControl = null;
         this.lastValue = undefined; // Track last value for value change detection
         this.hasLogged = false; // For debug logging

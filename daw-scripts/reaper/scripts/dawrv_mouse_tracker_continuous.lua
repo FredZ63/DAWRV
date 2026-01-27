@@ -2,8 +2,8 @@
 -- Constantly monitors what control is under the mouse cursor
 -- Sends data to RHEA for accurate control identification
 
--- How fast to poll (in seconds) - 0.1 = 10 times per second
-local POLL_INTERVAL = 0.1
+-- How fast to poll (in seconds) - 0.05 = 20 times per second for accuracy
+local POLL_INTERVAL = 0.05
 local last_poll_time = 0
 
 -- Track last detected control to avoid spam
@@ -36,11 +36,11 @@ function detect_control_under_mouse()
         timestamp = reaper.time_precise()
     }
     
-    -- Check segment for transport controls (segment starts with "trans.")
+    -- Check segment for transport controls (segment starts with "trans" or "transport")
     local seg_lower = segment and string.lower(tostring(segment)) or ""
     
-    -- TRANSPORT DETECTION: segment starts with "trans."
-    if seg_lower:find("^trans") then
+    -- TRANSPORT DETECTION: segment starts with "trans" or contains "transport"
+    if seg_lower:find("^trans") or seg_lower:find("transport") then
         result.success = true
         result.context = "transport"
         result.track_number = 0
@@ -141,7 +141,12 @@ function detect_control_under_mouse()
         
         result.success = true
         result.track_number = math.floor(track_number)
-        result.track_name = track_name ~= "" and track_name or ("Track " .. math.floor(track_number))
+        -- Handle Master track (track_number = 0)
+        if track_number == 0 then
+            result.track_name = "Master"
+        else
+            result.track_name = track_name ~= "" and track_name or ("Track " .. math.floor(track_number))
+        end
         result.track_guid = track_guid
         
         -- SMART CONTEXT DETECTION using GetThingFromPoint segment name
@@ -337,8 +342,8 @@ function identify_mcp_control(track, x, y)
     local window, segment, details = reaper.GetThingFromPoint(x, y)
     local seg_lower = segment and string.lower(tostring(segment)) or ""
     
-    -- DEBUG: Always log segment for MCP controls
-    -- reaper.ShowConsoleMsg(string.format("MCP segment: '%s' details: '%s'\n", seg_lower, tostring(details)))
+    -- DEBUG: Uncomment to log segment for troubleshooting theme-specific issues
+    -- reaper.ShowConsoleMsg(string.format("MCP segment: '%s' window: '%s'\n", seg_lower, tostring(window)))
     
     -- REAPER returns segment info for mixer controls - check for MCP-specific patterns first
     -- Patterns: "mcp.mute", "mcp.solo", "mcp.volume", "mcp.pan", etc.
@@ -360,12 +365,17 @@ function identify_mcp_control(track, x, y)
         return "track_area"
     end
     
+    -- NOTE: Position-based detection is theme-dependent and may be inaccurate
+    -- If segment was empty, we're using fallback mode
+    local using_fallback = (seg_lower == "" or seg_lower == "mcp" or seg_lower == "tcp")
+    
     local relative_y = y - mcp_y_start
     local relative_x = x - mcp_x_start
     local x_ratio = relative_x / mcp_width
     local y_ratio = relative_y / mcp_height
     
     -- Position-based fallback (for themes where segment isn't provided)
+    -- Accuracy depends on theme layout matching default REAPER theme
     if y_ratio < 0.12 then
         -- Top: track name/label
         return "track_label"

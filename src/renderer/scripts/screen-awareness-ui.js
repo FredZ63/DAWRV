@@ -32,14 +32,14 @@ class ScreenAwarenessUI {
         
         // Value change detection (announce when fader/knob is moved)
         this.lastValues = {}; // Track last known values by control ID
-        this.valueChangeDebounce = 800; // Wait 800ms after movement stops before announcing
+        this.valueChangeDebounce = 450; // Wait 450ms after movement stops before announcing
         this.valueChangeTimer = null;
         this.valueAnnouncementId = 0; // Unique ID to prevent duplicate announcements
         this.suppressNormalAnnouncements = false; // Suppress regular announcements during fader movement
         
         // SWIPE DETECTION - Prevent announcing every channel when swiping across mixer
         this.trackChangeHistory = []; // Track recent track number changes with timestamps
-        this.swipeDetectionWindow = 400; // Look at last 400ms of track changes (FASTER)
+        this.swipeDetectionWindow = 200; // Look at last 200ms of track changes
         this.swipeThreshold = 3; // If 3+ track changes in the window, it's a swipe
         this.swipeSettleTime = 250; // Must settle for 250ms after swipe (FASTER)
         this.lastTrackChangeTime = 0;
