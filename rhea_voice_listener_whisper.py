@@ -195,8 +195,8 @@ def record_audio():
     pre_buffer = deque(maxlen=PRE_BUFFER_CHUNKS)
     
     speech_frames = []
-    SILENCE_THRESHOLD = 80   # LOWERED - headset mic should easily exceed this with speech
-    MIN_SPEECH_CHUNKS = 1     # Only need 2 chunks to trigger (faster response)
+    SILENCE_THRESHOLD = 100   # LOWERED - headset mic should easily exceed this with speech
+    MIN_SPEECH_CHUNKS = 3     # Only need 2 chunks to trigger (faster response)
     MAX_SILENCE_CHUNKS = 8    # End after ~500ms silence
     SKIP_FIRST_CHUNKS = 3     # Skip first few chunks (mic initialization noise)
     
@@ -236,7 +236,7 @@ def record_audio():
                     speech_chunks += 1
                     chunks_above_threshold += 1
                     # Trigger on consecutive OR accumulated chunks
-                    if speech_chunks >= MIN_SPEECH_CHUNKS or chunks_above_threshold >= 4:
+                    if speech_chunks >= MIN_SPEECH_CHUNKS or chunks_above_threshold >= 6:
                         speech_detected = True
                         print(f'🎤 Speech detected! (consec={speech_chunks}, total={chunks_above_threshold})', flush=True)
                         # Include pre-buffer in speech frames
@@ -278,10 +278,10 @@ def record_audio():
     # Convert to float32 for Whisper
     audio_np = np.concatenate(speech_frames).astype(np.float32) / 32768.0
     
-    # Boost quiet audio
+    # Boost quiet audio AGGRESSIVELY
     max_val = np.abs(audio_np).max()
-    if max_val > 0.01 and max_val < 0.5:
-        boost = min(0.9 / max_val, 10.0)  # BOOST up to 10x for quiet mics
+    if max_val > 0.005 and max_val < 0.5:
+        boost = min(0.95 / max_val, 20.0)  # BOOST up to 20x for very quiet mics
         audio_np = audio_np * boost
         print(f'   Audio boosted {boost:.1f}x: max={np.abs(audio_np).max():.3f}', flush=True)
     else:
@@ -398,6 +398,9 @@ VALID_COMMANDS = [
     'raise', 'lower', 'up', 'down', 'louder', 'quieter',
     'go to', 'jump to', 'start', 'beginning', 'end',
     'hey rhea', 'rhea', 'okay rhea',
+    # Numbers (for "track 3", "channel 5", etc.)
+    'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+    '1', '2', '3', '4', '5', '6', '7', '8', '9', '10',
 ]
 
 def is_echo(text):
