@@ -16,14 +16,72 @@ class LocalAnimationService {
         this.cachedPhrases = new Map();
         this.pendingGenerations = new Set();
         this._loggedOffline = false;
+        this._checkTimer = null;
+        this._checkBackoffMs = 3000;
+        this._maxBackoffMs = 10 * 60 * 1000; // 10 minutes
+
+        // IMPORTANT:
+        // Browser devtools will show every failed network request, even if we catch errors.
+        // So we disable polling by default unless the user explicitly enables the local Wav2Lip server.
+        this.pollingEnabled = false;
+        try {
+            this.pollingEnabled = (localStorage.getItem('rhea_wav2lip_polling') === 'true');
+        } catch (_) {}
         
-        // Check server after a delay (avoid console noise on startup)
-        setTimeout(() => this.checkServer(), 3000);
-        
-        // Periodic server check (every 60 seconds)
-        setInterval(() => this.checkServer(), 60000);
+        if (this.pollingEnabled) {
+            // Check server after a delay (avoid console noise on startup)
+            this._scheduleCheck(3000);
+        } else {
+            // Audio-reactive is always available; no need to poll.
+            this.isServerRunning = false;
+            this.serverAvailable = false;
+        }
         
         console.log('🎤 Audio-reactive animation ready (Wav2Lip optional)');
+    }
+
+    /**
+     * Enable/disable Wav2Lip server polling (persists to localStorage).
+     * When disabled, we will not perform network requests to localhost:5555 at all.
+     */
+    setWav2LipPollingEnabled(enabled) {
+        const on = !!enabled;
+        this.pollingEnabled = on;
+        try {
+            localStorage.setItem('rhea_wav2lip_polling', on ? 'true' : 'false');
+        } catch (_) {}
+
+        if (!on) {
+            this._clearCheckTimer();
+            this.isServerRunning = false;
+            this.serverAvailable = false;
+            this._checkBackoffMs = 3000;
+            return;
+        }
+
+        // Start polling with a short delay
+        this._checkBackoffMs = 3000;
+        this._scheduleCheck(500);
+    }
+
+    _clearCheckTimer() {
+        if (this._checkTimer) {
+            clearTimeout(this._checkTimer);
+            this._checkTimer = null;
+        }
+    }
+
+    _scheduleCheck(delayMs) {
+        this._clearCheckTimer();
+        if (!this.pollingEnabled) return;
+        this._checkTimer = setTimeout(async () => {
+            try {
+                await this.checkServer();
+            } finally {
+                // Self-schedule with backoff (checkServer updates _checkBackoffMs)
+                this._scheduleCheck(this._checkBackoffMs);
+            }
+        }, Math.max(100, delayMs || 0));
     }
     
     /**
@@ -31,6 +89,9 @@ class LocalAnimationService {
      * (Silently fails if not running - audio-reactive is the fallback)
      */
     async checkServer() {
+        // If polling is disabled, never hit the network.
+        if (!this.pollingEnabled) return null;
+
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 2000);
@@ -46,6 +107,8 @@ class LocalAnimationService {
                 const status = await response.json();
                 this.isServerRunning = true;
                 this.serverAvailable = status.wav2lip_available && status.model_loaded;
+                // Reset backoff on success: check every 60s
+                this._checkBackoffMs = 60000;
                 
                 console.log('🎬 Local animation server:', 
                     this.serverAvailable ? '✅ Wav2Lip ready' : '⚠️ Audio-reactive mode');
@@ -57,6 +120,8 @@ class LocalAnimationService {
             // Audio-reactive mode will be used instead
             this.isServerRunning = false;
             this.serverAvailable = false;
+            // Exponential backoff to avoid spamming devtools with failed requests
+            this._checkBackoffMs = Math.min(this._checkBackoffMs * 2, this._maxBackoffMs);
             
             // Only log once on first check
             if (!this._loggedOffline) {
@@ -266,6 +331,16 @@ class LocalAnimationService {
 
 // Export singleton
 window.LocalAnimationService = new LocalAnimationService();
+
+// Convenience toggle (can be run from DevTools console)
+window.setWav2LipPollingEnabled = function(enabled) {
+    try {
+        window.LocalAnimationService?.setWav2LipPollingEnabled(!!enabled);
+        console.log(`🎬 Wav2Lip polling: ${enabled ? 'ENABLED' : 'DISABLED'}`);
+    } catch (e) {
+        console.warn('Failed to toggle Wav2Lip polling:', e?.message || e);
+    }
+};
 
 // Add test functions
 window.testAnimation = function() {

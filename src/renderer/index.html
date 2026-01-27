@@ -107,6 +107,14 @@
                             <span class="btn-icon">🧠</span>
                             <span class="btn-text">Session Aware</span>
                         </button>
+                        <button id="voice-pipeline-btn" class="voice-btn secondary" style="background: linear-gradient(135deg, #1a1a2e, #16213e); border: 1px solid rgba(76, 175, 80, 0.5);">
+                            <span class="btn-icon">🎙️</span>
+                            <span class="btn-text">Voice Pipeline</span>
+                        </button>
+                        <button id="studio-vocab-btn" class="voice-btn secondary" style="background: linear-gradient(135deg, #2d1b4e, #1a1a2e); border: 1px solid rgba(168, 85, 247, 0.5);">
+                            <span class="btn-icon">🎤</span>
+                            <span class="btn-text">Studio Vocab</span>
+                        </button>
                     </div>
                 </div>
                 
@@ -233,6 +241,7 @@
 
     <!-- Scripts -->
     <script src="scripts/knowledge-base.js"></script>
+    <script src="scripts/static-knowledge-loader.js"></script>
     <script src="scripts/knowledge-importer.js"></script>
     <script src="scripts/ai-agent.js"></script>
     <script src="scripts/ai-config.js"></script>
@@ -259,7 +268,56 @@
     <script src="scripts/session-aware.js"></script>
     <script src="scripts/session-aware-ui.js"></script>
     <script src="scripts/natural-voice.js"></script>
+    <script src="scripts/voice-pipeline.js"></script>
+    <script src="scripts/command-hud.js"></script>
+    <script src="scripts/voice-logger.js"></script>
+    <script src="scripts/voice-replay-harness.js"></script>
+    <script src="scripts/voice-pipeline-integration.js"></script>
+    <script src="scripts/reaper-health-check.js"></script>
+    <script src="scripts/voice-pipeline-settings-ui.js"></script>
+    <!-- Studio Vocabulary -->
+    <script src="scripts/studio-vocabulary-storage.js"></script>
+    <script src="scripts/studio-vocabulary-matcher.js"></script>
+    <script src="scripts/studio-vocabulary-executor.js"></script>
+    <script src="scripts/studio-vocabulary-ui.js"></script>
     <script src="scripts/app.js"></script>
     <script src="scripts/rhea.js"></script>
+    <script>
+        // Initialize voice pipeline after RHEA is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                // Initialize voice pipeline
+                if (typeof initVoicePipelineIntegration === 'function') {
+                    initVoicePipelineIntegration();
+                }
+                
+                // Initialize settings UI
+                setTimeout(function() {
+                    if (window.voicePipelineIntegration && typeof VoicePipelineSettingsUI !== 'undefined') {
+                        window.voicePipelineSettings = new VoicePipelineSettingsUI(window.voicePipelineIntegration);
+                        console.log('⚙️ Voice Pipeline Settings ready. Open with: voicePipelineSettings.show()');
+                    }
+                }, 500);
+                
+                // Initialize Studio Vocabulary
+                setTimeout(async function() {
+                    if (window.studioVocabularyStorage) {
+                        await window.studioVocabularyStorage.initialize();
+                        console.log('🎤 Studio Vocabulary ready. Open with: studioVocabularyUI.show()');
+                    }
+                }, 800);
+            }, 1000);
+        });
+        
+        // Keyboard shortcut to open settings (Ctrl/Cmd + Shift + V)
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'V') {
+                e.preventDefault();
+                if (window.voicePipelineSettings) {
+                    window.voicePipelineSettings.show();
+                }
+            }
+        });
+    </script>
 </body>
 </html>

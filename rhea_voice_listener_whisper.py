@@ -44,10 +44,10 @@ print('=' * 50, flush=True)
 # ============================================================================
 # LOAD WHISPER MODEL - TINY FOR SPEED!
 # ============================================================================
-print('📥 Loading Whisper model (TINY for speed)...', flush=True)
+print('📥 Loading Whisper model (BASE for accuracy)...', flush=True)
 try:
-    model = whisper.load_model("tiny")  # FAST! ~0.5s processing
-    print('✅ Whisper TINY model loaded! (ultra fast)', flush=True)
+    model = whisper.load_model("base")  # Better accuracy! ~1-2s processing
+    print('✅ Whisper BASE model loaded! (accurate transcriptions)', flush=True)
 except Exception as e:
     print(f'❌ Model load failed: {e}', flush=True)
     sys.exit(1)
@@ -162,8 +162,8 @@ def record_audio():
     pre_buffer = deque(maxlen=PRE_BUFFER_CHUNKS)
     
     speech_frames = []
-    SILENCE_THRESHOLD = 80   # Balanced for external/MacBook mic
-    MIN_SPEECH_CHUNKS = 3    # Need 3 chunks to confirm speech
+    SILENCE_THRESHOLD = 400  # VERY HIGH - only loud speech directly into headset mic (prevents noise)
+    MIN_SPEECH_CHUNKS = 8    # Need ~0.5s of sustained speech (prevents quick noises)
     MAX_SILENCE_CHUNKS = 12  # End after ~0.8s silence
     
     speech_detected = False
@@ -221,7 +221,13 @@ def record_audio():
     audio.terminate()
     
     if not speech_detected or len(speech_frames) < 10:
-        print('🔇 No speech detected (speak louder!)', flush=True)
+        print('🔇 No speech detected (speak louder and closer to mic!)', flush=True)
+        return None
+    
+    # Check minimum duration (reject very short clips where Whisper hallucinates)
+    duration = len(speech_frames) * CHUNK / RATE
+    if duration < 0.4:  # Minimum 0.4 seconds
+        print(f'🔇 Speech too short ({duration:.1f}s) - probably just noise. Speak longer!', flush=True)
         return None
     
     # Convert to float32 for Whisper

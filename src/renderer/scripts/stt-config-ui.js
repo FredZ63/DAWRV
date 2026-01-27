@@ -203,12 +203,20 @@ class STTConfigUI {
                     
                     <div class="stt-section">
                         <h3>Test Voice Recognition</h3>
+                        <div style="font-size: 12px; color: #888; margin-bottom: 10px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px;">
+                            ⚠️ Browser test requires internet. For reliable testing, use <strong>Advanced ASR Settings</strong> (works offline with Local Whisper).
+                        </div>
                         <div class="stt-test-area">
                             <button id="stt-test-btn" class="stt-test-button">
                                 <span class="stt-test-icon">🎤</span>
                                 <span>Test Recognition</span>
                             </button>
                             <div id="stt-test-result" class="stt-test-result"></div>
+                        </div>
+                        <div style="margin-top: 10px; text-align: center;">
+                            <a href="#" id="open-asr-settings-link" style="color: #00BCD4; text-decoration: none; font-size: 12px; cursor: pointer;">
+                                → Open Advanced ASR Settings (Recommended)
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -265,6 +273,23 @@ class STTConfigUI {
         // Test button
         this.modal.querySelector('#stt-test-btn')?.addEventListener('click', () => {
             this.testRecognition();
+        });
+        
+        // Link to Advanced ASR Settings
+        this.modal.querySelector('#open-asr-settings-link')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Close this modal
+            this.hide();
+            // Open Advanced ASR Settings
+            setTimeout(() => {
+                if (window.ASRConfigUI) {
+                    window.ASRConfigUI.show();
+                } else if (window.rhea && window.rhea.asrConfigUI) {
+                    window.rhea.asrConfigUI.show();
+                } else {
+                    alert('Advanced ASR Settings not available. Check the main menu.');
+                }
+            }, 300);
         });
     }
     
@@ -417,7 +442,35 @@ class STTConfigUI {
             };
             
             recognition.onerror = (event) => {
-                resultDiv.innerHTML = `<div class="stt-result-error">Error: ${event.error}</div>`;
+                let errorMsg = `Error: ${event.error}`;
+                let helpText = '';
+                
+                // Provide helpful error messages
+                switch(event.error) {
+                    case 'network':
+                        errorMsg = 'Network Error';
+                        helpText = 'Browser speech recognition requires internet connection. Try using Advanced ASR Settings instead (Local Whisper works offline).';
+                        break;
+                    case 'no-speech':
+                        errorMsg = 'No Speech Detected';
+                        helpText = 'Speak louder or check your microphone settings.';
+                        break;
+                    case 'audio-capture':
+                        errorMsg = 'Microphone Error';
+                        helpText = 'Check microphone permissions in System Preferences > Security & Privacy > Microphone.';
+                        break;
+                    case 'not-allowed':
+                        errorMsg = 'Permission Denied';
+                        helpText = 'Microphone permission denied. Allow microphone access in browser/system settings.';
+                        break;
+                    default:
+                        helpText = 'Browser speech recognition may not work in Electron. Use Advanced ASR Settings for reliable voice recognition.';
+                }
+                
+                resultDiv.innerHTML = `
+                    <div class="stt-result-error">${errorMsg}</div>
+                    <div class="stt-result-help" style="margin-top: 8px; font-size: 12px; color: #888;">${helpText}</div>
+                `;
                 resultDiv.className = 'stt-test-result error';
             };
             
@@ -436,7 +489,13 @@ class STTConfigUI {
             }, 5000);
             
         } catch (error) {
-            resultDiv.innerHTML = `<div class="stt-result-error">Speech recognition not available in this browser</div>`;
+            resultDiv.innerHTML = `
+                <div class="stt-result-error">Speech Recognition Not Available</div>
+                <div class="stt-result-help" style="margin-top: 8px; font-size: 12px; color: #888;">
+                    Browser speech recognition may not work in Electron.<br>
+                    <strong>Solution:</strong> Use "Advanced ASR Settings" → Select "Local Whisper" (works offline) or "AssemblyAI" (cloud, reliable).
+                </div>
+            `;
             resultDiv.className = 'stt-test-result error';
             testBtn.disabled = false;
             testBtn.innerHTML = '<span class="stt-test-icon">🎤</span><span>Test Recognition</span>';

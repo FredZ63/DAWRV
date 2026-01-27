@@ -22,6 +22,9 @@ class ASRConfigUI {
             openaiSTTKey: ''
         };
         
+        // Track fallback state to prevent retry loops
+        this._fallbackInProgress = false;
+        
         // Load saved config
         this.loadConfig();
     }
@@ -146,6 +149,42 @@ class ASRConfigUI {
                         </div>
                     </label>
 
+                    <!-- AssemblyAI Option (RECOMMENDED) -->
+                    <label id="engine-assemblyai-label" style="flex: 1; display: flex; flex-direction: column; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 12px; cursor: pointer; border: 2px solid transparent; position: relative; opacity: 0.85;">
+                        <input type="radio" name="speech-engine" value="assemblyai" style="position: absolute; opacity: 0;">
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                            <span style="font-size: 24px;">⭐</span>
+                            <div>
+                                <div style="color: #fff; font-weight: bold;">AssemblyAI</div>
+                                <div style="color: #FF6B35; font-size: 11px;">RECOMMENDED • Reliable</div>
+                            </div>
+                        </div>
+                        <div style="color: #aaa; font-size: 11px; line-height: 1.4;">
+                            ⚡ ~300-500ms latency<br>
+                            🎯 Excellent accuracy<br>
+                            ✅ Very reliable API<br>
+                            🔑 Free tier available
+                        </div>
+                    </label>
+
+                    <!-- Gemini 2.5 Audio Option -->
+                    <label id="engine-gemini-label" style="flex: 1; display: flex; flex-direction: column; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 12px; cursor: pointer; border: 2px solid transparent; position: relative; opacity: 0.85;">
+                        <input type="radio" name="speech-engine" value="gemini" style="position: absolute; opacity: 0;">
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                            <span style="font-size: 24px;">✨</span>
+                            <div>
+                                <div style="color: #fff; font-weight: bold;">Gemini 2.5 Audio</div>
+                                <div style="color: #9C27B0; font-size: 11px;">Natural • Cloud</div>
+                            </div>
+                        </div>
+                        <div style="color: #aaa; font-size: 11px; line-height: 1.4;">
+                            🎤 Natural-sounding audio<br>
+                            🎯 High accuracy<br>
+                            🌐 Requires internet<br>
+                            🔑 Uses Gemini API key
+                        </div>
+                    </label>
+
                     <!-- OpenAI API Option -->
                     <label id="engine-openai-label" style="flex: 1; display: flex; flex-direction: column; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 12px; cursor: pointer; border: 2px solid transparent; position: relative; opacity: 0.8;">
                         <input type="radio" name="speech-engine" value="openai" style="position: absolute; opacity: 0;">
@@ -178,6 +217,42 @@ class ASRConfigUI {
                     </div>
                     <div style="margin-top: 10px; font-size: 12px; color: #888;">
                         Tip: you can also set it via environment variable <code style="color:#80DEEA;">DEEPGRAM_API_KEY</code>.
+                    </div>
+                </div>
+
+                <!-- AssemblyAI Key Input (shown when AssemblyAI selected) -->
+                <div id="assemblyai-stt-config" style="display: none; margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 10px;">
+                    <label style="color: #fff; display: block; margin-bottom: 8px; font-size: 13px;">
+                        🔑 AssemblyAI API Key <span style="color: #888;">(stored locally)</span>
+                    </label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="password" id="assemblyai-stt-key" placeholder="Your API key..." style="flex: 1; padding: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: #fff; font-family: monospace;">
+                        <button id="save-assemblyai-stt" style="padding: 12px 20px; background: linear-gradient(135deg, #FF6B35, #E85A4F); border: none; border-radius: 8px; color: white; cursor: pointer; font-weight: bold;">
+                            Save
+                        </button>
+                    </div>
+                    <div style="margin-top: 10px; font-size: 12px; color: #888;">
+                        Get your free API key at <a href="https://www.assemblyai.com/app/account" target="_blank" style="color: #FF6B35;">assemblyai.com</a>
+                        <br>
+                        Free tier: 5 hours/month • Tip: you can also set it via environment variable <code style="color:#80DEEA;">ASSEMBLYAI_API_KEY</code>.
+                    </div>
+                </div>
+
+                <!-- Gemini Key Input (shown when Gemini selected) -->
+                <div id="gemini-stt-config" style="display: none; margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 10px;">
+                    <label style="color: #fff; display: block; margin-bottom: 8px; font-size: 13px;">
+                        🔑 Gemini API Key <span style="color: #888;">(stored locally)</span>
+                    </label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="password" id="gemini-stt-key" placeholder="AI..." style="flex: 1; padding: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: #fff; font-family: monospace;">
+                        <button id="save-gemini-stt" style="padding: 12px 20px; background: linear-gradient(135deg, #9C27B0, #7B1FA2); border: none; border-radius: 8px; color: white; cursor: pointer; font-weight: bold;">
+                            Save
+                        </button>
+                    </div>
+                    <div style="margin-top: 10px; font-size: 12px; color: #888;">
+                        Get your key at <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #9C27B0;">aistudio.google.com</a>
+                        <br>
+                        Tip: you can also set it via environment variable <code style="color:#80DEEA;">GEMINI_API_KEY</code>.
                     </div>
                 </div>
 
@@ -391,10 +466,51 @@ class ASRConfigUI {
         document.getElementById('asr-start-btn').addEventListener('click', () => this.startASR());
         document.getElementById('asr-stop-btn').addEventListener('click', () => this.stopASR());
         
+        // Listen for provider fallback events (Deepgram -> local due to auth failure)
+        if (window.api && window.api.onASRProviderFallback) {
+            window.api.onASRProviderFallback((info) => {
+                console.warn('🛟 ASR provider fallback:', info);
+                // Update config to match the fallback
+                if (info.to === 'local' && this.config.speechEngine === 'deepgram') {
+                    this._fallbackInProgress = true;
+                    this.config.speechEngine = 'local';
+                    this.saveConfig();
+                    // Update UI to reflect local is now active
+                    const localRadio = document.querySelector('input[name="speech-engine"][value="local"]');
+                    if (localRadio) {
+                        localRadio.checked = true;
+                        this.updateEngineUI();
+                    }
+                    this.showToast(`⚠️ Deepgram auth failed — switched to Local ASR`, 'warning');
+                    // Keep isASRRunning = true since fallback will restart ASR automatically
+                    this.isASRRunning = true;
+                    this.updateStatus();
+                    // Clear flag after a short delay (fallback restart happens ~500ms later)
+                    setTimeout(() => {
+                        this._fallbackInProgress = false;
+                    }, 2000);
+                }
+            });
+        }
+        
+        // Listen for ASR stop events to update running state
+        if (window.api && window.api.onASRStopped) {
+            window.api.onASRStopped((code) => {
+                // Only update if we're not in a fallback restart (code 1 = error, but fallback will restart)
+                // If code is 0, it's a clean stop
+                if (code === 0) {
+                    this.isASRRunning = false;
+                    this.updateStatus();
+                }
+            });
+        }
+        
         // ========== Speech Engine Selection ==========
         document.querySelectorAll('input[name="speech-engine"]').forEach(radio => {
             radio.addEventListener('change', (e) => {
                 this.config.speechEngine = e.target.value;
+                // Clear fallback flag when user manually changes engine (they may have fixed API key)
+                this._fallbackInProgress = false;
                 this.updateEngineUI();
                 this.saveConfig();
             });
@@ -419,6 +535,38 @@ class ASRConfigUI {
                     window.api.updateASRConfig(this.config);
                 }
                 this.showToast(key ? '✅ Deepgram key saved' : '✅ Deepgram key cleared');
+            });
+        }
+        
+        // AssemblyAI key save button
+        const saveAssemblyAIBtn = document.getElementById('save-assemblyai-stt');
+        if (saveAssemblyAIBtn) {
+            saveAssemblyAIBtn.addEventListener('click', () => {
+                const keyInput = document.getElementById('assemblyai-stt-key');
+                const key = (keyInput?.value || '').trim();
+                this.config.assemblyaiApiKey = key;
+                this.saveConfig();
+                // Persist to backend config too
+                if (window.api && window.api.updateASRConfig) {
+                    window.api.updateASRConfig(this.config);
+                }
+                this.showToast(key ? '✅ AssemblyAI key saved' : '✅ AssemblyAI key cleared');
+            });
+        }
+        
+        // Gemini key save button
+        const saveGeminiBtn = document.getElementById('save-gemini-stt');
+        if (saveGeminiBtn) {
+            saveGeminiBtn.addEventListener('click', () => {
+                const keyInput = document.getElementById('gemini-stt-key');
+                const key = (keyInput?.value || '').trim();
+                this.config.geminiApiKey = key;
+                this.saveConfig();
+                // Persist to backend config too
+                if (window.api && window.api.updateASRConfig) {
+                    window.api.updateASRConfig(this.config);
+                }
+                this.showToast(key ? '✅ Gemini key saved' : '✅ Gemini key cleared');
             });
         }
         
@@ -459,8 +607,12 @@ class ASRConfigUI {
     updateEngineUI() {
         const localLabel = document.getElementById('engine-local-label');
         const deepgramLabel = document.getElementById('engine-deepgram-label');
+        const assemblyaiLabel = document.getElementById('engine-assemblyai-label');
+        const geminiLabel = document.getElementById('engine-gemini-label');
         const openaiLabel = document.getElementById('engine-openai-label');
         const deepgramConfig = document.getElementById('deepgram-stt-config');
+        const assemblyaiConfig = document.getElementById('assemblyai-stt-config');
+        const geminiConfig = document.getElementById('gemini-stt-config');
         const openaiConfig = document.getElementById('openai-stt-config');
         const modelSelect = document.getElementById('asr-model-select');
         const modelSection = document.getElementById('whisper-model-section');
@@ -477,10 +629,14 @@ class ASRConfigUI {
         // Reset badges
         localLabel.querySelector('.active-badge')?.remove();
         deepgramLabel?.querySelector('.active-badge')?.remove();
+        assemblyaiLabel?.querySelector('.active-badge')?.remove();
+        geminiLabel?.querySelector('.active-badge')?.remove();
         openaiLabel.querySelector('.active-badge')?.remove();
 
         // Hide configs by default
         if (deepgramConfig) deepgramConfig.style.display = 'none';
+        if (assemblyaiConfig) assemblyaiConfig.style.display = 'none';
+        if (geminiConfig) geminiConfig.style.display = 'none';
         openaiConfig.style.display = 'none';
 
         if (engine === 'openai') {
@@ -535,6 +691,88 @@ class ASRConfigUI {
                     keyInput.value = this.config.deepgramApiKey;
                 }
             }
+            if (assemblyaiLabel) {
+                assemblyaiLabel.style.border = '2px solid transparent';
+                assemblyaiLabel.style.opacity = '0.85';
+            }
+            if (geminiLabel) {
+                geminiLabel.style.border = '2px solid transparent';
+                geminiLabel.style.opacity = '0.85';
+            }
+        } else if (engine === 'assemblyai') {
+            // AssemblyAI selected
+            localLabel.style.border = '2px solid transparent';
+            localLabel.style.opacity = '0.8';
+            localLabel.querySelector('div[style*="ACTIVE"]')?.remove();
+            
+            if (deepgramLabel) {
+                deepgramLabel.style.border = '2px solid transparent';
+                deepgramLabel.style.opacity = '0.85';
+            }
+            
+            if (assemblyaiLabel) {
+                assemblyaiLabel.style.border = '2px solid #FF6B35';
+                assemblyaiLabel.style.opacity = '1';
+                const badge = document.createElement('div');
+                badge.className = 'active-badge';
+                badge.style.cssText = 'position: absolute; top: 8px; right: 8px; background: #FF6B35; color: white; font-size: 10px; padding: 2px 8px; border-radius: 10px;';
+                badge.textContent = 'ACTIVE';
+                assemblyaiLabel.appendChild(badge);
+            }
+            
+            if (geminiLabel) {
+                geminiLabel.style.border = '2px solid transparent';
+                geminiLabel.style.opacity = '0.85';
+            }
+            
+            openaiLabel.style.border = '2px solid transparent';
+            openaiLabel.style.opacity = '0.8';
+            
+            if (assemblyaiConfig) {
+                assemblyaiConfig.style.display = 'block';
+                const keyInput = document.getElementById('assemblyai-stt-key');
+                if (keyInput && this.config.assemblyaiApiKey) {
+                    keyInput.value = this.config.assemblyaiApiKey;
+                }
+            }
+            
+            if (deepgramConfig) deepgramConfig.style.display = 'none';
+            if (geminiConfig) geminiConfig.style.display = 'none';
+            openaiConfig.style.display = 'none';
+        } else if (engine === 'gemini') {
+            // Gemini selected
+            localLabel.style.border = '2px solid transparent';
+            localLabel.style.opacity = '0.8';
+            localLabel.querySelector('div[style*="ACTIVE"]')?.remove();
+            
+            if (deepgramLabel) {
+                deepgramLabel.style.border = '2px solid transparent';
+                deepgramLabel.style.opacity = '0.85';
+            }
+            
+            if (geminiLabel) {
+                geminiLabel.style.border = '2px solid #9C27B0';
+                geminiLabel.style.opacity = '1';
+                const badge = document.createElement('div');
+                badge.className = 'active-badge';
+                badge.style.cssText = 'position: absolute; top: 8px; right: 8px; background: #9C27B0; color: white; font-size: 10px; padding: 2px 8px; border-radius: 10px;';
+                badge.textContent = 'ACTIVE';
+                geminiLabel.appendChild(badge);
+            }
+            
+            openaiLabel.style.border = '2px solid transparent';
+            openaiLabel.style.opacity = '0.8';
+            
+            if (geminiConfig) {
+                geminiConfig.style.display = 'block';
+                const keyInput = document.getElementById('gemini-stt-key');
+                if (keyInput && this.config.geminiApiKey) {
+                    keyInput.value = this.config.geminiApiKey;
+                }
+            }
+            
+            if (deepgramConfig) deepgramConfig.style.display = 'none';
+            openaiConfig.style.display = 'none';
         } else {
             // Local selected
             openaiLabel.style.border = '2px solid transparent';
@@ -543,11 +781,17 @@ class ASRConfigUI {
                 deepgramLabel.style.border = '2px solid transparent';
                 deepgramLabel.style.opacity = '0.85';
             }
+            if (geminiLabel) {
+                geminiLabel.style.border = '2px solid transparent';
+                geminiLabel.style.opacity = '0.85';
+            }
 
             localLabel.style.border = '2px solid #4CAF50';
             localLabel.style.opacity = '1';
 
             if (deepgramConfig) deepgramConfig.style.display = 'none';
+            if (assemblyaiConfig) assemblyaiConfig.style.display = 'none';
+            if (geminiConfig) geminiConfig.style.display = 'none';
             openaiConfig.style.display = 'none';
         }
     }
@@ -685,6 +929,12 @@ class ASRConfigUI {
     }
     
     async startASR() {
+        // Prevent retry loops: if already running or fallback in progress, don't start again
+        if (this.isASRRunning || this._fallbackInProgress) {
+            console.log('⚠️ ASR already running or fallback in progress — skipping start request');
+            return;
+        }
+        
         const startBtn = document.getElementById('asr-start-btn');
         startBtn.textContent = '⏳ Starting (switching from Whisper)...';
         startBtn.disabled = true;
@@ -703,6 +953,7 @@ class ASRConfigUI {
                     window.dispatchEvent(new CustomEvent('voice-engine-changed', { detail: 'asr' }));
                 } else {
                     this.showToast(`❌ ${result.error}`, 'error');
+                    startBtn.disabled = false;
                 }
             } else if (window.api && window.api.startASR) {
                 // Legacy fallback
@@ -713,6 +964,7 @@ class ASRConfigUI {
                     this.showToast('✅ ASR started!');
                 } else {
                     this.showToast(`❌ ${result.error}`, 'error');
+                    startBtn.disabled = false;
                 }
             } else {
                 // Fallback: emit event for rhea.js to handle
@@ -723,9 +975,12 @@ class ASRConfigUI {
             }
         } catch (err) {
             this.showToast(`❌ ${err.message}`, 'error');
+            startBtn.disabled = false;
         }
         
-        startBtn.innerHTML = '▶️ Start Listening';
+        if (!this.isASRRunning) {
+            startBtn.innerHTML = '▶️ Start Listening';
+        }
     }
     
     async stopASR() {

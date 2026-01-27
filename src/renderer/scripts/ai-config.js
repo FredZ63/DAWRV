@@ -444,6 +444,31 @@ class AIConfigManager {
             retryDelay: 1000,
             exponentialBackoff: true
         };
+
+        // Validate key before saving to avoid runtime spam + confusing fallback.
+        const provider = config.provider;
+        const apiKey = (config.apiKey || '').trim();
+        if (provider !== 'local') {
+            if (!apiKey) {
+                this.showStatus('❌ API key is required for cloud providers', 'error');
+                return;
+            }
+            if (provider === 'openai' && !apiKey.startsWith('sk-')) {
+                this.showStatus('❌ Invalid OpenAI key: must start with "sk-"', 'error');
+                return;
+            }
+            if (provider === 'anthropic' && !apiKey.startsWith('sk-ant-')) {
+                this.showStatus('❌ Invalid Anthropic key: must start with "sk-ant-"', 'error');
+                return;
+            }
+            if (provider === 'gemini' && !apiKey.startsWith('AI')) {
+                this.showStatus('❌ Invalid Gemini key: must start with "AI"', 'error');
+                return;
+            }
+        }
+
+        // Normalize trimmed API key
+        config.apiKey = apiKey || null;
         
         this.rhea.saveAIConfig(config);
         this.showStatus('✅ Configuration saved!', 'success');

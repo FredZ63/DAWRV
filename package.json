@@ -14,7 +14,15 @@
     "build:linux": "electron-builder --linux",
     "build:complete": "./build_app.sh"
   },
-  "keywords": ["audio", "DAW", "voice", "AI", "RHEA", "MORPHEUS", "music production"],
+  "keywords": [
+    "audio",
+    "DAW",
+    "voice",
+    "AI",
+    "RHEA",
+    "MORPHEUS",
+    "music production"
+  ],
   "author": "Frederick Zimmerman",
   "license": "MIT",
   "devDependencies": {
@@ -23,6 +31,7 @@
   },
   "dependencies": {
     "axios": "^1.6.0",
+    "osc": "^2.4.5",
     "ws": "^8.14.2"
   }
 }

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>NLU Parser Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+        .test { margin: 10px 0; padding: 10px; background: #252526; border-left: 3px solid #007acc; }
+        .pass { border-left-color: #4ec9b0; }
+        .fail { border-left-color: #f48771; }
+        .input { color: #ce9178; }
+        .result { color: #4ec9b0; }
+        h2 { color: #4ec9b0; }
+    </style>
+</head>
+<body>
+    <h1>🧠 NLU Parser Test Suite</h1>
+    <div id="results"></div>
+    
+    <script src="src/renderer/scripts/nlu-parser.js"></script>
+    <script>
+        const parser = new NLUParser();
+        const results = document.getElementById('results');
+        
+        const tests = [
+            // Transport
+            { input: 'play', expect: { action: 'play', confidence: 0.95 } },
+            { input: 'stop', expect: { action: 'stop', confidence: 0.95 } },
+            { input: 'pause playback', expect: { action: 'pause', confidence: 0.95 } },
+            
+            // Navigation
+            { input: 'go to bar 12', expect: { action: 'gotobar', params: { bar_number: 12 } } },
+            { input: 'play from bar 5', expect: { action: 'playfrombar', params: { bar_number: 5 } } },
+            { input: 'loop bars 4 to 8', expect: { action: 'loopbars', params: { bar_start: 4, bar_end: 8 } } },
+            
+            // Punch
+            { input: 'punch me in at bar 12 and out at bar 19', expect: { action: 'setpunch' } },
+            
+            // Track
+            { input: 'mute this', expect: { action: 'mute' } },
+            { input: 'solo track 3', expect: { action: 'solo', params: { track_number: 3 } } },
+            
+            // Mixer
+            { input: 'raise the volume', expect: { action: 'volume_up' } },
+            { input: 'bring this down 5 db', expect: { action: 'volume_down', params: { db_amount: -5 } } },
+            { input: 'pan left', expect: { action: 'pan' } },
+            
+            // Edit
+            { input: 'undo that', expect: { action: 'undo', confidence: 0.95 } },
+            
+            // Conversational
+            { input: 'hi there', expect: { action: 'greeting' } },
+            { input: 'thanks', expect: { action: 'thanks' } }
+        ];
+        
+        let passed = 0;
+        let failed = 0;
+        
+        tests.forEach((test, i) => {
+            const result = parser.parse(test.input);
+            const pass = result.action === test.expect.action;
+            
+            if (pass) passed++;
+            else failed++;
+            
+            const div = document.createElement('div');
+            div.className = `test ${pass ? 'pass' : 'fail'}`;
+            div.innerHTML = `
+                <strong>${pass ? '✅' : '❌'} Test ${i + 1}</strong><br>
+                <span class="input">Input: "${test.input}"</span><br>
+                <span class="result">Action: ${result.action} (confidence: ${result.confidence})</span><br>
+                ${result.params && Object.keys(result.params).length > 0 ? `<span>Params: ${JSON.stringify(result.params)}</span><br>` : ''}
+                <span>Latency: ${result.latency_ms}ms | Passed threshold: ${result.passed_threshold}</span>
+            `;
+            results.appendChild(div);
+        });
+        
+        const summary = document.createElement('h2');
+        summary.innerHTML = `Results: ${passed}/${tests.length} passed (${(passed/tests.length*100).toFixed(1)}%)`;
+        results.insertBefore(summary, results.firstChild);
+    </script>
+</body>
+</html>

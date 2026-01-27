@@ -1,8 +1,189 @@
 {
   "name": "REAPER Knowledge Base for RHEA",
-  "version": "1.0",
+  "version": "2.0",
   "created": "2024",
+  "updated": "2026",
   "categories": [
+    {
+      "name": "Bouncing and Rendering",
+      "entries": [
+        {
+          "topic": "Bounce/Render Tracks",
+          "content": "To bounce or render tracks in REAPER: Select the tracks you want to bounce. Go to File > Render or press Ctrl+Alt+R. Choose 'Stems (selected tracks)' from the Source dropdown. Set your format (WAV recommended for quality). Choose 'Add rendered items to project' if you want to keep working. Click Render. The bounced audio will appear as new items.",
+          "steps": ["Select tracks to bounce", "File > Render (Ctrl+Alt+R)", "Source: Stems (selected tracks)", "Set format and location", "Click Render"],
+          "tips": ["Use 'Render to project' for quick bouncing", "Mute original tracks after bouncing to save CPU", "Consider freezing tracks instead for reversible bounce"]
+        },
+        {
+          "topic": "Freeze Tracks",
+          "content": "Freezing tracks is a reversible way to bounce: Right-click the track and select 'Freeze track' or 'Render/Freeze > Freeze to stereo'. This renders all FX and items to audio, freeing CPU. To unfreeze later, right-click and select 'Unfreeze'. Frozen tracks show a snowflake icon.",
+          "steps": ["Right-click track", "Select 'Freeze track' or use Track menu", "Choose stereo or mono", "Frozen track uses minimal CPU"],
+          "tips": ["Freeze heavy plugin chains during mixing", "Unfreeze to make edits, re-freeze when done", "Freeze preserves your plugin settings"]
+        },
+        {
+          "topic": "Render to New Track",
+          "content": "Quick render to a new track: Select items or time range. Go to File > Render or Ctrl+Alt+R. Under Source, choose your selection. Enable 'Add rendered items to new tracks in project'. Set your format. This creates a new track with the rendered audio while keeping originals.",
+          "tips": ["Great for creating stems", "Use for consolidating edits", "Keeps original tracks intact"]
+        },
+        {
+          "topic": "Export Final Mix",
+          "content": "To export your final mix: File > Render (Ctrl+Alt+R). Source: Master mix. Set format (WAV for master, MP3/M4A for distribution). Choose sample rate (44.1kHz for CD, 48kHz for video). Bit depth 24-bit or 16-bit. Enable 'Normalize/Limit' if needed. Click Render.",
+          "formats": {"WAV": "Best quality, large files", "MP3": "320kbps for good quality", "FLAC": "Lossless compression", "M4A/AAC": "Good for streaming"}
+        }
+      ]
+    },
+    {
+      "name": "Time Stretching and Pitch",
+      "entries": [
+        {
+          "topic": "Time Stretch Basics",
+          "content": "Time stretching in REAPER: Hold Alt and drag the right edge of an item to stretch/compress time. The item changes length without changing pitch. REAPER uses élastique by default for high-quality stretching. For better control, right-click item > Item properties > Playback rate.",
+          "methods": ["Alt+drag item edge", "Item properties > Playback rate", "Use rate envelope for automation"],
+          "tips": ["Smaller stretches sound more natural", "Use 'Preserve pitch when changing rate' in item settings", "élastique Pro is best for complex audio"]
+        },
+        {
+          "topic": "Pitch Shifting",
+          "content": "To change pitch without changing tempo: Select item > Item properties. Enable 'Preserve pitch when changing rate'. Or use ReaPitch plugin for real-time pitch shifting. For pitch envelope: right-click item > Take > Take pitch envelope. You can automate pitch changes over time.",
+          "methods": ["Item properties > Pitch adjust", "ReaPitch plugin", "Take pitch envelope"],
+          "tips": ["Small shifts (±2 semitones) sound most natural", "Use formant preservation for vocals", "Pitch envelope great for risers and drops"]
+        },
+        {
+          "topic": "Tempo Matching",
+          "content": "Match audio to project tempo: Right-click item > Item processing > Set item tempo from... Choose source tempo or tap it. Item will stretch to match project tempo. For loops, use 'Set item timebase to beats'. Now the loop follows tempo changes automatically.",
+          "steps": ["Right-click item", "Item processing > Set item tempo", "Enter original BPM", "Item syncs to project tempo"]
+        },
+        {
+          "topic": "Warp Markers",
+          "content": "For precise timing correction: Double-click item to open in editor. Enable 'Show stretch markers'. Alt+click to add stretch markers at transients. Drag markers to align timing. Great for tightening drums or fixing timing issues.",
+          "tips": ["Use at transient points for best results", "Quantize stretch markers to grid", "Less is more - too many markers can cause artifacts"]
+        }
+      ]
+    },
+    {
+      "name": "Multi-Track Recording",
+      "entries": [
+        {
+          "topic": "Multi-Track Setup",
+          "content": "Recording multiple tracks simultaneously: Create tracks for each input (Ctrl+T). On each track, click the input dropdown and assign unique inputs (Input 1, Input 2, etc.). Arm all tracks for recording (select all, press R or click arm buttons). Press Record to capture all inputs at once.",
+          "steps": ["Create tracks for each instrument/mic", "Assign unique inputs to each track", "Arm all tracks", "Press Record"],
+          "tips": ["Label tracks before recording", "Set input levels to avoid clipping", "Use headphone mix for performers"]
+        },
+        {
+          "topic": "Recording Setup for Band",
+          "content": "Setting up for full band recording: Create tracks: Kick, Snare, Overheads, Bass, Guitar L, Guitar R, Vocals. Route interface inputs to corresponding tracks. Create headphone submix for performers. Enable input monitoring on each track. Set up click track on separate output.",
+          "routing": ["Drums typically inputs 1-4+", "Bass DI on one input", "Guitars can be mic + DI", "Vocals on dedicated preamp input"]
+        },
+        {
+          "topic": "Input Monitoring",
+          "content": "Hear yourself while recording: Click the speaker icon on track (or press I with track selected). This routes input through REAPER. For lower latency, use direct monitoring from your interface instead. To disable auto-monitoring: Preferences > Audio > Auto-mute input when stopped.",
+          "modes": {"Record monitoring off": "Only hear playback", "Monitor input": "Always hear input", "Monitor on arm": "Hear input when armed"}
+        },
+        {
+          "topic": "Headphone/Cue Mixes",
+          "content": "Create separate mixes for performers: Add a new track as 'Headphone Bus'. Route instrument tracks to this bus via sends. Adjust send levels for performer's preferred mix. Route Headphone Bus to a separate interface output. Connect headphone amp to that output.",
+          "tips": ["Performers usually want more of themselves", "Include click track in cue mix", "Keep latency low for live monitoring"]
+        }
+      ]
+    },
+    {
+      "name": "Templates and Presets",
+      "entries": [
+        {
+          "topic": "Project Templates",
+          "content": "Save your setup as a template: Set up tracks, routing, FX, and settings as desired. File > Project templates > Save project as template. Name it descriptively (e.g., 'Rock Band Session'). Access via File > Project templates. Templates include tracks, FX, routing, tempo, and time signature.",
+          "includes": ["Track layout and names", "FX chains on tracks", "Routing and sends", "Project settings", "Color coding"],
+          "tips": ["Create templates for different genres", "Include placeholder tracks", "Save with no audio items"]
+        },
+        {
+          "topic": "Track Templates",
+          "content": "Save individual track setups: Set up a track with FX, routing, etc. Right-click track > Save tracks as track template. Name it (e.g., 'Vocal Chain'). Insert later via Track > Insert track from template. Great for reusing your go-to channel strips.",
+          "uses": ["Vocal processing chain", "Drum bus with compression", "Guitar amp sim setup", "Synth with effects"]
+        },
+        {
+          "topic": "FX Chain Presets",
+          "content": "Save and recall FX chains: Open FX window on track. Click the + button or 'FX' dropdown. Select 'Save FX chain as...' to save. To load: 'Load FX chain...' Your chain appears in the FX browser under 'FX Chains'.",
+          "tips": ["Save chains for specific sources", "Include both insert and parallel chains", "Name with descriptive prefixes"]
+        },
+        {
+          "topic": "Screensets",
+          "content": "Save window layouts as screensets: Arrange windows as desired. Press Ctrl+1 through Ctrl+9 to save current layout. Press 1-9 (without Ctrl) to recall. Great for switching between recording, editing, and mixing views.",
+          "examples": {"1": "Recording view (large meters)", "2": "Editing view (waveforms)", "3": "Mixing view (mixer + meters)", "4": "Mastering view"}
+        },
+        {
+          "topic": "Default Project",
+          "content": "Set your default new project: Create project with your preferred settings. File > Project templates > Save project as template. Check 'Make default project' or name it exactly 'default'. New projects will use this setup. Include tempo, sample rate, tracks, and routing."
+        }
+      ]
+    },
+    {
+      "name": "Advanced Recording",
+      "entries": [
+        {
+          "topic": "Pre-Roll and Count-In",
+          "content": "Set up count-in before recording: Options > Pre-roll before recording. Set number of measures (usually 1-2). Enable metronome for count-in. Now recording will play back the pre-roll section before punch point, giving you time to prepare.",
+          "settings": ["1-2 bars typical", "Enable metronome during pre-roll", "Useful for punch-ins"]
+        },
+        {
+          "topic": "Auto-Punch Recording",
+          "content": "Record only within a specific range: Set time selection over the section to re-record. Options > Auto-punch. Press Record - playback starts before selection, records only within it, continues playing after. Perfect for fixing sections without re-recording everything.",
+          "steps": ["Make time selection", "Enable auto-punch", "Press Record", "Recording happens only in selection"]
+        },
+        {
+          "topic": "Take Lanes and Comping",
+          "content": "Record multiple takes and choose the best: Enable loop mode. Record multiple passes - each creates a new take. Expand take lanes (click lane header). Click on sections to select best parts from each take. REAPER creates crossfades automatically. Right-click > Crop to active take when done.",
+          "tips": ["Color code your best takes", "Use 'Explode takes to tracks' for parallel editing", "Flatten comp when finished"]
+        },
+        {
+          "topic": "Recording Modes Explained",
+          "content": "REAPER has several recording modes: Normal (item) - creates new items. Overdub - layers on existing items. Replace - overwrites existing audio. Time selection auto-punch - only records in selection. Tape mode - destructive replace. Access via right-click on record button.",
+          "modes": {"Normal": "Most common, creates new items", "Overdub": "Layers takes, good for building parts", "Replace": "Overwrites, careful!", "Auto-punch": "Precision re-recording"}
+        }
+      ]
+    },
+    {
+      "name": "Automation",
+      "entries": [
+        {
+          "topic": "Basic Automation",
+          "content": "Automate any parameter: Click the Trim/Envelopes button on track (or press V). Select parameter to automate. Draw automation with pencil tool or record it. For real-time: enable Write mode, press Play, move the control. Points are recorded as you adjust.",
+          "modes": {"Trim/Read": "Follows envelope", "Touch": "Writes when touched, returns when released", "Latch": "Writes when touched, stays", "Write": "Always writing"}
+        },
+        {
+          "topic": "Volume Automation",
+          "content": "Automate track volume for dynamics: Show volume envelope (V on track). Click to add points, drag to adjust. Use 4-point technique for fades: start level, transition start, transition end, end level. Hold Shift for finer control.",
+          "tips": ["Automate in context (while playing)", "Use trim envelope for overall adjustments", "Group faders for linked automation"]
+        },
+        {
+          "topic": "Plugin Automation",
+          "content": "Automate plugin parameters: Open plugin, click 'Param' button. Select 'FX Parameter List'. Choose parameter and click 'Learn' while moving it. Or enable 'UI' button to show all automatable params. Create envelope and draw automation.",
+          "tips": ["Not all parameters are automatable", "Some plugins have latency", "Use 'Link to...' for sidechain control"]
+        },
+        {
+          "topic": "Automation Curves",
+          "content": "Shape automation with curves: Right-click between points for curve options. Linear = straight line. Fast start = quick change then slow. Fast end = slow then quick. Bezier = S-curve. Smooth = gentle curves. Hold Alt while dragging for custom curves.",
+          "shapes": ["Linear", "Square", "Slow start/end", "Fast start/end", "Bezier", "Smooth"]
+        }
+      ]
+    },
+    {
+      "name": "Effects and Processing",
+      "entries": [
+        {
+          "topic": "Adding Effects",
+          "content": "Add effects to tracks: Click FX button on track (or press F with track selected). Browse effects by category or search. Double-click to add. Drag to reorder in chain. Click bypass button to A/B. Right-click for more options.",
+          "types": {"VST/VST3": "Most plugins", "AU": "Mac only", "JS": "REAPER built-in scripts", "ReaPlugs": "REAPER's free plugins"}
+        },
+        {
+          "topic": "Parallel Processing",
+          "content": "Run effects in parallel: Create send to new track. Add effects on the send track. Blend dry (original) with wet (effected). Great for parallel compression, reverb, and creative effects. Use pre-fader sends for consistent wet level.",
+          "uses": ["Parallel/New York compression", "Reverb sends", "Distortion blend", "Creative effects"]
+        },
+        {
+          "topic": "ReaPlugs Overview",
+          "content": "REAPER includes excellent free plugins: ReaEQ - flexible parametric EQ. ReaComp - versatile compressor. ReaDelay - delay with sync. ReaVerb - convolution reverb. ReaGate - noise gate. ReaPitch - pitch shifting. ReaLimit - brick-wall limiter. All low CPU and high quality.",
+          "recommended": {"ReaEQ": "Go-to EQ", "ReaComp": "Great compressor", "ReaDelay": "Tempo-synced delay", "ReaLimit": "Master limiter"}
+        }
+      ]
+    },
     {
       "name": "Mixing Fundamentals",
       "entries": [

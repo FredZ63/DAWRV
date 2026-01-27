@@ -22,7 +22,7 @@ class RHEAController {
             // Editing
             'undo': 40029,
             'redo': 40030,
-            'cut': 40001,
+            'cut': 40699,     // Fixed: was 40001 (wrong action!)
             'copy': 40003,
             'paste': 40004,
             'delete': 40005,
@@ -154,9 +154,9 @@ class RHEAController {
         
         // Voice recognition configuration
         this.config = {
-            sensitivity: 0.6, // Command matching threshold (0-1)
+            sensitivity: 0.82, // Command matching threshold (0-1) - Balanced for accuracy + flexibility
             phraseTimeout: 6, // Max seconds to listen for a phrase
-            enableFuzzyMatching: true,
+            enableFuzzyMatching: true, // RE-ENABLED with stricter threshold (0.82 = 82% similarity required)
             autoRestart: true
         };
 
@@ -184,7 +184,8 @@ class RHEAController {
         // - playback: wake phrase required only during playback/recording (best if transport feedback is reliable)
         // - auto: require wake phrase during playback unless a headset-like mic is detected
         // - off: no wake phrase required (not recommended)
-        this.wakeMode = localStorage.getItem('rhea_wake_mode') || 'always';
+        // DEFAULT TO OFF for immediate command execution (changed from 'always')
+        this.wakeMode = localStorage.getItem('rhea_wake_mode') || 'off';
         const savedWakeMs = parseInt(localStorage.getItem('rhea_wake_session_ms') || '6000', 10);
         this.wakeSessionDurationMs = Number.isFinite(savedWakeMs) ? savedWakeMs : 6000;
 
@@ -197,13 +198,24 @@ class RHEAController {
         // Best-effort headset mic detection (renderer-only).
         // If the input device looks like a headset, wakeMode='auto' can relax gating
         // because DAW audio is less likely to bleed into the mic.
-        this.isHeadsetInput = false;
+        // DEFAULT TO TRUE - User confirmed using headset with mic
+        // Headset = mic close to mouth, isolated from speakers = no feedback loop risk
+        this.isHeadsetInput = true;
         this._lastAudioInputLabel = '';
         this.initHeadsetDetection();
 
         // Safety/UX: always allow STOP commands to pass even if wake gate is enabled.
         // Worst-case failure mode is the DAW stops (safe), and it dramatically reduces frustration.
         this._stopCommandRe = /^(stop|stop\s+(playback|playing|transport|recording)|halt)\b/i;
+        
+        // Command deduplication tracking (prevents runaway loops)
+        this._lastCommandKey = '';
+        this._lastCommandTime = 0;
+
+        // Context + intent pipeline state
+        this.latestContextSnapshot = null;
+        this.pendingStructuredCommand = null;
+        this.intentConfidenceThreshold = 0.85;
 
         // Failsafe transport inference from playhead movement (covers OSC setups that don't
         // reliably send /play but DO send time/pos updates while playing)
@@ -366,6 +378,11 @@ class RHEAController {
         this.setupVoiceEngineListeners();
         
         this.rheaResponsePhrases = [ // Full phrases RHEA says that shouldn't trigger commands
+            // CRITICAL: Add single-word responses that often cause feedback loops
+            'playing', 'stopped', 'stopping', 'recording', 'paused', 'rewinding', 'redoing',
+            'muting', 'unmuting', 'soloing', 'unsoloing', 'saving', 'cutting', 'copying', 'pasting',
+            'deleting', 'selecting', 'creating', 'opening', 'closing', 'toggling', 'zooming',
+            // Full phrases
             'starting playback', 'stopping playback', 'recording started', 'undoing last action',
             'saving project', 'creating new track', 'reaper api not available', 'failed to execute command',
             'command failed', 'reaper not connected', 'pausing playback', 'rewinding to start',
@@ -386,7 +403,9 @@ class RHEAController {
             'selected track', 'muted track', 'unmuted track', 'soloed track', 'unsoloed track',
             'setting track volume', 'track volume set', 'panning track', 'track panned',
             // Common error phrases
-            'not found', 'command not found', 'plugin not found', 'action not found'
+            'not found', 'command not found', 'plugin not found', 'action not found',
+            // Natural voice transformations that might get transcribed
+            'got it', 'done', 'okay', 'alright', 'sure thing', 'you bet', 'on it', 'will do'
         ];
         
         // Load saved config from localStorage
@@ -424,6 +443,7 @@ class RHEAController {
         this.initElements();
         // this.initSpeechRecognition(); // Disabled - using manual input
         this.initListeners();
+        this.registerContextListeners();
         
         // Initialize AI config UI after a short delay (ensure DOM is ready)
         setTimeout(() => {
@@ -513,7 +533,11 @@ class RHEAController {
                         console.log('🔇 Ignoring ASR transcript (wake gate):', data.text);
                         return;
                     }
-                    this.processCommand(gate.transcript, { source: 'voice', skipWakeCheck: gate.skipWakeCheck });
+                    this.processCommand(gate.transcript, { 
+                        source: 'voice', 
+                        skipWakeCheck: gate.skipWakeCheck,
+                        confidence: data.confidence 
+                    });
                 }
             });
             console.log('✅ ASR transcript listener registered');
@@ -698,8 +722,12 @@ class RHEAController {
                     console.log('🎤 TTS Provider initialized:', ttsConfig.provider);
                 } else {
                     console.warn('⚠️ TTS Provider initialization failed:', result.error);
-                    console.warn('   Will use direct OpenAI API calls as fallback');
-                    // NO browser fallback - speakOpenAI() will be used directly
+                    if (result.fallback === 'browser') {
+                        console.log('💡 Fallback: Using browser TTS (no OpenAI API key)');
+                        // Voice feedback will use browser TTS via speakBrowserTTS()
+                    } else {
+                        console.warn('   Will use direct OpenAI API calls as fallback');
+                    }
                 }
             } else {
                 console.log('⚠️  TTS Provider class not available - will use direct OpenAI API');
@@ -819,7 +847,10 @@ class RHEAController {
                     ...aiConfig,
                     knowledgeBase: knowledgeBase
                 });
-                this.useAI = aiConfig.apiKey || aiConfig.provider === 'local';
+                // ENABLED for conversational Q&A (questions about REAPER workflows)
+                // Fast-path keyword matching still handles direct commands instantly
+                this.useAI = true;
+                console.log('🤖 AI Agent ENABLED for conversational Q&A');
                 
                 console.log('🤖 AI Agent initialized:', {
                     provider: aiConfig.provider,
@@ -1048,6 +1079,46 @@ class RHEAController {
                     console.warn('Voice engine warning (ignored):', error);
                 }
             });
+        }
+    }
+
+    registerContextListeners() {
+        try {
+            if (window.dawrv?.voice?.onContextSnapshot) {
+                window.dawrv.voice.onContextSnapshot((snapshot) => {
+                    this.updateContextSnapshot(snapshot);
+                });
+            }
+            // Prime with a snapshot on startup
+            if (window.dawrv?.voice?.getContextSnapshot) {
+                window.dawrv.voice.getContextSnapshot()
+                    .then((snapshot) => this.updateContextSnapshot(snapshot))
+                    .catch(() => {});
+            }
+        } catch (e) {
+            console.warn('⚠️  Failed to register context listeners:', e?.message || e);
+        }
+    }
+
+    updateContextSnapshot(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object') return;
+        this.latestContextSnapshot = snapshot;
+
+        // Keep AI prompt in sync with DAW state when enabled
+        try {
+            if (this.aiAgent && typeof this.aiAgent.updateDAWContext === 'function') {
+                const tracks = snapshot.reaperState?.tracks || {};
+                this.aiAgent.updateDAWContext({
+                    projectName: snapshot.reaperState?.projectName || null,
+                    isPlaying: !!snapshot.reaperState?.transport?.playing,
+                    isRecording: !!snapshot.reaperState?.transport?.recording,
+                    trackCount: Object.keys(tracks).length || 0,
+                    lastAction: snapshot.activeControl?.type || null,
+                    lastActionTime: snapshot.timestamp || Date.now()
+                });
+            }
+        } catch (e) {
+            console.warn('⚠️  Failed to sync AI context:', e?.message || e);
         }
     }
 
@@ -1399,21 +1470,60 @@ class RHEAController {
 
     // Enhanced command matching with fuzzy logic
     matchCommand(text) {
-        const lower = text.toLowerCase().trim();
+        let lower = text.toLowerCase().trim();
+        
+        // NORMALIZE NUMBER WORDS TO DIGITS (improves matching)
+        // ONLY convert actual number words, NOT common words like "to"
+        const numberWords = {
+            'one': '1', 'two': '2',
+            'three': '3', 'four': '4', 'for': '4',
+            'five': '5', 'six': '6', 'seven': '7', 'eight': '8',
+            'nine': '9', 'ten': '10'
+        };
+        
+        // Misheard variations that should ONLY be converted in numeric contexts
+        const misheardsToTwo = ['to', 'too', 'tue', 'tu'];
+        
+        // Only convert number words that appear after context keywords
+        // This prevents "go to bar" from becoming "go 2 bar"
+        const contextKeywords = ['track', 'channel', 'bar', 'measure', 'take', 'marker', 'region', 'item'];
+        for (const keyword of contextKeywords) {
+            // Convert actual number words (e.g., "track two" → "track 2")
+            for (const [word, digit] of Object.entries(numberWords)) {
+                const contextPattern = new RegExp(`\\b${keyword}\\s+${word}\\b`, 'gi');
+                lower = lower.replace(contextPattern, `${keyword} ${digit}`);
+            }
+            
+            // Also convert misheard "to/too" → "2" ONLY after these keywords
+            // e.g., "track to" → "track 2" but "go to bar" stays "go to bar"
+            for (const misheard of misheardsToTwo) {
+                const mishearPattern = new RegExp(`\\b${keyword}\\s+${misheard}\\b`, 'gi');
+                lower = lower.replace(mishearPattern, `${keyword} 2`);
+            }
+        }
+        
+        // Also handle standalone numbers at the end (e.g., "arm track two" → "arm track 2")
+        for (const [word, digit] of Object.entries(numberWords)) {
+            // If the number word is at the end of the text, convert it
+            const endPattern = new RegExp(`\\s+${word}$`, 'gi');
+            if (endPattern.test(lower)) {
+                lower = lower.replace(endPattern, ` ${digit}`);
+            }
+        }
         
         // Command patterns with variations - ORDER MATTERS (more specific first)
         // Check longer phrases first to avoid partial matches
         const commandPatterns = [
             {
                 name: 'stop',
-                keywords: ['stop playback', 'stop playing', 'stop the playback', 'halt playback'],
+                keywords: ['stop playback', 'stop playing', 'stop the playback', 'halt playback', 'stop', 'halt'],
                 action: 'stop',
                 response: 'Stopping playback',
                 priority: 10
             },
             {
                 name: 'play',
-                keywords: ['start playback', 'start playing', 'play the', 'begin playback'],
+                keywords: ['start playback', 'start playing', 'play the', 'begin playback', 'play', 'start', 'begin'],
                 action: 'play',
                 response: 'Starting playback',
                 priority: 10
@@ -2256,6 +2366,12 @@ class RHEAController {
                 // This prevents "mute track" from matching inside "unmute track"
                 const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
+                
+                // DEBUG: Log matching attempt for "go to bar" commands
+                if (keyword.includes('bar') && lower.includes('bar')) {
+                    console.log(`🔍 Testing pattern "${keyword}" against "${lower}" - Match: ${regex.test(lower)}`);
+                }
+                
                 if (regex.test(lower)) {
                     return {
                         action: cmdData.action,
@@ -2961,6 +3077,180 @@ class RHEAController {
         
         // Return true only if it's conversational AND doesn't seem like a command
         return isConversational && !seemsLikeCommand;
+    }
+    /**
+     * Check if the query is a question about REAPER/production
+     */
+    isQuestionQuery(text) {
+        const lower = text.toLowerCase().trim();
+        const questionPatterns = [
+            /^how (do|can|should|would|to)/i,
+            /^what (is|are|does|do|should|would)/i,
+            /^where (is|are|do|can|should)/i,
+            /(how do i|how to|how can i)/i,
+            /(teach me|show me how|explain)/i
+        ];
+        const reaperKeywords = /(reaper|track|record|bounce|render|freeze|tempo|pitch|stretch|warp|midi|automation|mix|master|plugin|effect|fx|marker|region|loop|punch|arm|monitor|bus|send|routing|template)/i;
+        const isQuestion = questionPatterns.some(p => p.test(lower));
+        const hasReaperKeyword = reaperKeywords.test(lower);
+        return isQuestion && hasReaperKeyword;
+    }
+    
+    /**
+     * Try to answer from static knowledge base (no API needed)
+     */
+    tryStaticKnowledge(text) {
+        if (!window.staticKnowledge || !window.staticKnowledge.loaded) return null;
+        try {
+            const answer = window.staticKnowledge.quickAnswer(text);
+            if (answer) return answer.length > 500 ? answer.slice(0, 497) + '...' : answer;
+            const results = window.staticKnowledge.search(text, 1);
+            if (results.length > 0) {
+                let response = results[0].content;
+                if (results[0].steps && results[0].steps.length > 0) {
+                    response += ' Steps: ' + results[0].steps.join(', then ') + '.';
+                }
+                return response.length > 500 ? response.slice(0, 497) + '...' : response;
+            }
+        } catch (e) { console.warn('Static knowledge lookup failed:', e); }
+        return null;
+    }
+    
+    /**
+     * Handle Studio Vocabulary matching
+     * Checks utterance against user-defined studio slang and executes mappings
+     */
+    async handleStudioVocabulary(utterance) {
+        try {
+            const matcher = window.studioVocabularyMatcher;
+            const executor = window.studioVocabularyExecutor;
+            
+            if (!matcher || !executor) {
+                return null;
+            }
+            
+            // Get vocabulary context
+            const vocabContext = matcher.getVocabContext(utterance);
+            
+            if (!vocabContext || !vocabContext.vocabMatch) {
+                return null;
+            }
+            
+            console.log('🎤 Studio Vocabulary Match:', vocabContext.vocabMatch.phrase, 
+                        `(${(vocabContext.vocabMatch.score * 100).toFixed(0)}%)`);
+            
+            const { vocabMatch, hasActionMapping, clarificationRule } = vocabContext;
+            
+            // Handle based on intent type
+            if (vocabMatch.intentType === 'vibe') {
+                // Vibe phrases - respond naturally, no DAW action
+                const response = executor.getVibeResponse(vocabContext);
+                if (response) {
+                    this.speak(response);
+                    this.updateStatus('ready', vocabMatch.phrase);
+                    this.logResult(utterance, 'success', 'vocab-vibe');
+                    return { handled: true, source: 'studio-vocabulary', type: 'vibe' };
+                }
+            }
+            
+            if (vocabMatch.intentType === 'action' && hasActionMapping) {
+                // Action phrases - build and execute ActionPlan
+                const matchResult = matcher.match(utterance);
+                
+                if (!matchResult || !matchResult.item) {
+                    return null;
+                }
+                
+                // Get current DAW context for target resolution
+                const dawContext = {
+                    selectedTrack: this.latestContextSnapshot?.activeTrack || 1,
+                    activeControl: this.latestContextSnapshot?.activeControl,
+                    focusedElement: this.latestContextSnapshot?.activeControl
+                };
+                
+                // Build action plan
+                const plan = executor.buildActionPlan(matchResult, dawContext);
+                
+                if (!plan) {
+                    return null;
+                }
+                
+                // Check if clarification is needed
+                if (plan.needsClarification && clarificationRule !== 'neverAsk') {
+                    // Store pending action and ask for clarification
+                    this.pendingVocabAction = plan;
+                    this.speak(plan.clarificationQuestion);
+                    this.updateStatus('waiting', 'Awaiting clarification...');
+                    return { handled: true, source: 'studio-vocabulary', type: 'clarification' };
+                }
+                
+                // Execute the action plan
+                const result = await executor.execute(plan);
+                
+                if (result.success) {
+                    // Speak studio-style confirmation
+                    this.speak(result.confirmation);
+                    this.updateStatus('ready', plan.phrase);
+                    this.logResult(utterance, 'success', 'vocab-action');
+                    return { handled: true, source: 'studio-vocabulary', type: 'action', result };
+                } else {
+                    console.warn('⚠️ Vocabulary action failed:', result.error);
+                    this.speak("Couldn't do that. Something went wrong.");
+                    return { handled: true, source: 'studio-vocabulary', type: 'error', error: result.error };
+                }
+            }
+            
+            return null;
+            
+        } catch (e) {
+            console.error('❌ Studio Vocabulary error:', e);
+            return null;
+        }
+    }
+    
+    /**
+     * Handle clarification response for pending vocab action
+     */
+    async handleVocabClarification(response) {
+        if (!this.pendingVocabAction) {
+            return false;
+        }
+        
+        const executor = window.studioVocabularyExecutor;
+        const plan = this.pendingVocabAction;
+        
+        // Parse the response for amount/value
+        for (const action of plan.actions) {
+            if (action.needsClarification && action.type === 'parameterDelta') {
+                const parsed = executor.parseAmountResponse(response, action.payload.paramName);
+                if (parsed) {
+                    action.payload.amount = parsed.amount;
+                    action.payload.unit = parsed.unit;
+                    action.needsClarification = false;
+                }
+            }
+        }
+        
+        // Check if all clarifications resolved
+        const stillNeedsClarification = plan.actions.some(a => a.needsClarification);
+        
+        if (stillNeedsClarification) {
+            this.speak("I didn't catch that. How much?");
+            return true;
+        }
+        
+        // Execute the plan
+        this.pendingVocabAction = null;
+        const result = await executor.execute(plan);
+        
+        if (result.success) {
+            this.speak(result.confirmation);
+            this.updateStatus('ready', plan.phrase);
+        } else {
+            this.speak("Something went wrong.");
+        }
+        
+        return true;
     }
     
     /**
@@ -4551,7 +4841,12 @@ class RHEAController {
         try {
             if (!navigator?.mediaDevices?.enumerateDevices) return;
 
-            const headsetRe = /(airpods|headset|headphones|bluetooth|beats|sony|bose|jab|jabra|plantronics|logitech|wh-|qc\\s?\\d|wireless|hands-?free|hfp)/i;
+            // Expanded headset detection pattern to include:
+            // - Brand names (AirPods, Beats, Sony, Bose, Jabra, etc.)
+            // - Generic terms (headset, headphones, earbuds, wireless)
+            // - External devices (often headsets plugged into audio jack)
+            // Note: "External Microphone" on Mac often means headset mic plugged into 3.5mm jack
+            const headsetRe = /(airpods|headset|headphones|earbuds|bluetooth|beats|sony|bose|jab|jabra|plantronics|logitech|wh-|qc\\s?\\d|wireless|hands-?free|hfp|external\s+microphone|external\s+mic)/i;
 
             const update = async () => {
                 try {
@@ -4579,11 +4874,20 @@ class RHEAController {
                     const inputs = (devices || []).filter(d => d && d.kind === 'audioinput');
                     const byLabel = (d) => String(d?.label || '');
 
+                    // Debug: Log all detected audio inputs
+                    console.log('🎤 Detected audio inputs:', inputs.map(d => byLabel(d)));
+
                     // Prefer a device that looks like a headset; otherwise fall back to first input.
                     const candidate = inputs.find(d => headsetRe.test(byLabel(d))) || inputs[0] || null;
                     const label = candidate ? String(candidate.label || '') : '';
                     this._lastAudioInputLabel = label;
+                    const wasHeadset = this.isHeadsetInput;
                     this.isHeadsetInput = !!(label && headsetRe.test(label));
+                    
+                    // Log headset detection result
+                    if (this.isHeadsetInput !== wasHeadset) {
+                        console.log(`🎧 Headset detection changed: ${this.isHeadsetInput ? 'HEADSET DETECTED' : 'NO HEADSET'} (${label})`);
+                    }
                 } catch {
                     // Labels may be empty without permission; keep last known state.
                 }
@@ -4601,10 +4905,10 @@ class RHEAController {
      * This prioritizes responsiveness and is only enabled when headset is detected/assumed.
      */
     isIsolatedMicMode() {
-        try {
-            if (localStorage.getItem('rhea_headset_assume_isolated') === 'true') return true;
-        } catch (_) {}
-        return !!this.isHeadsetInput;
+        // ALWAYS TRUE for headset users (mic is isolated from speakers)
+        // This enables instant response with minimal delays (10ms)
+        // No risk of feedback loop because headset mic only picks up user's voice
+        return true;
     }
 
     async processCommand(transcript, options = {}) {
@@ -4619,6 +4923,10 @@ class RHEAController {
             console.log('🔇 Ignoring command - RHEA is currently speaking:', transcript);
             return;
         }
+        
+        // POST-TTS GATE DISABLED - User has headset, no feedback risk
+        // Typed commands work perfectly, so this gate was blocking voice unnecessarily
+        // Commands can now be issued immediately after RHEA speaks
 
         // ============================================================
         // WAKE PHRASE / PLAYBACK GATE
@@ -4674,39 +4982,103 @@ class RHEAController {
         // Prevent duplicate processing
         const now = Date.now();
         
-        // FILTER: Ignore very short transcripts (likely false triggers from noise)
-        // EXCEPTION: Allow single/double digit numbers (for track count responses)
-        const isNumber = /^\d+$/i.test(normalizedCommand);
-        if (normalizedCommand.length < 3 && !isNumber) {
-            console.log('🔇 Ignoring very short transcript (likely noise):', transcript);
-            return;
+        // ===================================================================
+        // SMART COMMAND DEDUPLICATION
+        // ===================================================================
+        // Prevent the same command from executing multiple times rapidly
+        // This stops runaway loops while allowing legitimate repeated commands
+        
+        const COMMAND_COOLDOWN_MS = 500; // 500ms minimum between identical commands
+        const commandKey = normalizedCommand.toLowerCase().trim();
+        
+        // Check if this exact command was just processed
+        if (this._lastCommandKey === commandKey) {
+            const timeSinceLastCommand = now - (this._lastCommandTime || 0);
+            if (timeSinceLastCommand < COMMAND_COOLDOWN_MS) {
+                console.log(`🔇 Duplicate command blocked (${timeSinceLastCommand}ms ago):`, transcript);
+                return;
+            }
         }
         
-        // FILTER: Ignore transcripts that are just single letters (but allow numbers)
-        if (/^[a-z]$/i.test(normalizedCommand)) {
-            console.log('🔇 Ignoring single letter transcript:', transcript);
-            return;
-        }
-        
-        // FILTER: Ignore common ambient sound transcriptions
-        const ambientNoises = ['uh', 'um', 'ah', 'oh', 'mm', 'hm', 'shh', 'psh', 'tsk', 'hmm', 'uhh', 'umm'];
-        if (ambientNoises.includes(normalizedCommand)) {
-            console.log('🔇 Ignoring ambient noise:', transcript);
-            return;
-        }
+        // Update deduplication tracking
+        this._lastCommandKey = commandKey;
+        this._lastCommandTime = now;
         
         // FILTER: Ignore RHEA's own responses to prevent feedback loops
-        // Check if the transcript matches any phrase that RHEA would say
         for (const phrase of this.rheaResponsePhrases) {
             if (normalizedCommand.includes(phrase.toLowerCase())) {
                 console.log('🔇 Ignoring RHEA response phrase (feedback suppression):', transcript);
                 return;
             }
         }
+
+        // If we asked for confirmation, handle yes/no before any other filtering
+        if (this.pendingStructuredCommand) {
+            if (this.isAffirmationCommand(normalizedCommand)) {
+                console.log('✅ User confirmed pending structured command');
+                await this.executeStructuredCommand(this.pendingStructuredCommand, { confirmed: true });
+                this.pendingStructuredCommand = null;
+                this.isProcessingCommand = false;
+                return;
+            }
+            if (this.isCancelCommand(normalizedCommand)) {
+                console.log('🛑 Pending structured command cancelled');
+                this.pendingStructuredCommand = null;
+                this.speak('Cancelled');
+                this.isProcessingCommand = false;
+                return;
+            }
+        }
         
-        // MAXIMUM RESPONSIVENESS MODE - All blocking checks REMOVED
-        // Commands execute INSTANTLY, no cooldowns, no similarity checks
-        // This allows commands to work even while DAW is playing
+        // ===================================================================
+        // SMART BACKGROUND NOISE FILTER
+        // ===================================================================
+        // Reject transcripts that are clearly background audio (music, TV, conversations)
+        // but allow legitimate natural language commands
+        
+        const wordCount = normalizedCommand.split(/\s+/).filter(w => w.length > 0).length;
+        
+        // List of DAW-related keywords that indicate a legitimate command
+        const dawKeywords = [
+            'play', 'stop', 'record', 'pause', 'rewind', 'undo', 'redo',
+            'track', 'mute', 'solo', 'arm', 'volume', 'pan', 'mixer',
+            'tempo', 'loop', 'marker', 'save', 'open', 'new', 'delete',
+            'cut', 'copy', 'paste', 'select', 'zoom', 'master', 'channel',
+            'disarm', 'fader', 'plugin', 'effect', 'bus', 'send', 'receive',
+            'bar', 'measure', 'beat', 'punch', 'transport', 'automation'
+        ];
+        
+        // Background noise phrases to reject outright
+        const backgroundPhrases = [
+            'and that\'s all',
+            'for the beat combo',
+            'you know what i mean',
+            'in the morning',
+            'thank you',
+            'how are you',
+            'see you later',
+            'nice to meet'
+        ];
+        
+        // Check for background noise phrases
+        for (const bgPhrase of backgroundPhrases) {
+            if (normalizedCommand.includes(bgPhrase)) {
+                console.log('🔇 Ignoring background audio (noise phrase detected):', transcript);
+                return;
+            }
+        }
+        
+        // If transcript is >8 words AND doesn't contain a DAW keyword, reject it
+        if (wordCount > 8) {
+            const hasKeyword = dawKeywords.some(kw => normalizedCommand.includes(kw));
+            if (!hasKeyword) {
+                console.log(`🔇 Ignoring long transcript without DAW keywords (${wordCount} words):`, transcript);
+                return;
+            }
+        }
+        
+        // MAXIMUM RESPONSIVENESS MODE - Commands execute INSTANTLY
+        // Smart filtering prevents false positives while maintaining low latency
         
         // Add to history (keep last 10)
         this.commandHistory.push({ command: normalizedCommand, time: now });
@@ -4777,6 +5149,17 @@ class RHEAController {
             }
         }
         // === END CONTEXT-AWARE ===
+
+        // Structured pipeline: build intent with context + confidence and route through DAWRV executor.
+        const structuredHandled = await this.handleStructuredPipeline(transcript, normalizedCommand, {
+            source,
+            hoverContext,
+            confidence: options && typeof options.confidence === 'number' ? options.confidence : null
+        });
+        if (structuredHandled) {
+            this.isProcessingCommand = false;
+            return;
+        }
         
         // FAST PATH: Skip AI for common DAW commands - use keyword matching for INSTANT response
         // These are direct commands that don't need AI interpretation
@@ -4812,6 +5195,34 @@ class RHEAController {
                 console.log('✅ Keyword match found:', match.action);
             }
         }
+        
+        // ============================================================
+        // STUDIO VOCABULARY MATCHING (before standard NLU)
+        // Check if utterance matches any studio slang/vocabulary
+        // ============================================================
+        if (!match && window.studioVocabularyMatcher && window.studioVocabularyStorage?.loaded) {
+            const vocabResult = await this.handleStudioVocabulary(transcript);
+            if (vocabResult && vocabResult.handled) {
+                console.log('🎤 Handled by Studio Vocabulary');
+                this.isProcessingCommand = false;
+                return vocabResult;
+            }
+        }
+        
+        // Try static knowledge for quick Q&A (no API needed)
+        if (!match && this.isQuestionQuery(transcript)) {
+            const quickAnswer = this.tryStaticKnowledge(transcript);
+            if (quickAnswer) {
+                console.log('📚 Answered from static knowledge');
+                this.speak(quickAnswer);
+                this.updateStatus('ready', quickAnswer.slice(0, 50) + '...');
+                this.logResult(transcript, 'success');
+                this.isProcessingCommand = false;
+                return { handled: true, source: 'static-knowledge' };
+            }
+        }
+        
+
         
         // Try AI first if enabled (for natural conversation) and not a recording command
         if (!match && this.useAI && this.aiAgent) {
@@ -5593,29 +6004,42 @@ class RHEAController {
                     console.log('⚡ Playing CACHED audio (instant)');
                     const audioUrl = URL.createObjectURL(cached);
                     const audio = new Audio(audioUrl);
-                    await new Promise((resolve, reject) => {
-                        audio.onended = () => { URL.revokeObjectURL(audioUrl); resolve(); };
-                        audio.onerror = () => { URL.revokeObjectURL(audioUrl); reject(); };
-                        audio.play();
-                    });
-                    return;
+                    try {
+                        await new Promise((resolve, reject) => {
+                            audio.onended = () => { URL.revokeObjectURL(audioUrl); resolve(); };
+                            audio.onerror = () => { URL.revokeObjectURL(audioUrl); reject(); };
+                            const playPromise = audio.play();
+                            if (playPromise) playPromise.catch(reject);
+                        });
+                        return;
+                    } catch (cacheError) {
+                        console.warn('⚠️ Cached audio playback failed, trying OpenAI:', cacheError);
+                    }
                 }
             }
             
             // Generate fresh audio via OpenAI
-            await this.speakOpenAI(naturalText);
+            try {
+                await this.speakOpenAI(naturalText);
+            } catch (openaiError) {
+                // Fallback to browser TTS if OpenAI fails (autoplay blocked)
+                console.warn('⚠️ OpenAI TTS failed, using browser TTS fallback:', openaiError.message);
+                await this.speakBrowserTTS(naturalText);
+            }
             
         } catch (error) {
-            console.error('⚡ TTS error:', error);
+            console.error('⚡ TTS error (all methods failed):', error);
         } finally {
-            // CRITICAL: Delay before resuming to let echo fade
-            // The Python listener waits 1.5s after signal clears
-            // But we add extra buffer here too
-            await new Promise(resolve => setTimeout(resolve, 800));
+            // Delay before resuming to let TTS audio finish
+            // HEADSET MODE: Near-zero delay (10ms) for instant response
+            // SPEAKER MODE: Longer delay (1500ms) to prevent echo pickup
+            const POST_TTS_DELAY = this.isIsolatedMicMode() ? 10 : 1500;
+            await new Promise(resolve => setTimeout(resolve, POST_TTS_DELAY));
             
             this.isSpeaking = false;
             this.speechEndTime = Date.now();
             this.resumeListening();
+            console.log(`✅ TTS complete, microphone resumed after ${POST_TTS_DELAY}ms delay`);
         }
     }
     
@@ -5664,16 +6088,31 @@ class RHEAController {
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
         
+        // Set properties to help with autoplay
+        audio.volume = 1.0;
+        audio.preload = 'auto';
+        
         return new Promise((resolve, reject) => {
             audio.onended = () => {
                 URL.revokeObjectURL(audioUrl);
                 resolve();
             };
             audio.onerror = (e) => {
+                console.error('❌ Audio playback error:', e);
                 URL.revokeObjectURL(audioUrl);
                 reject(e);
             };
-            audio.play();
+            
+            // Handle autoplay restrictions
+            const playPromise = audio.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    console.error('⚠️ Autoplay blocked by browser:', error);
+                    URL.revokeObjectURL(audioUrl);
+                    // Reject so caller can try fallback (browser TTS)
+                    reject(new Error('Autoplay blocked'));
+                });
+            }
         });
     }
     
@@ -5901,6 +6340,29 @@ class RHEAController {
         });
     }
     
+    /**
+     * Promise-wrapped browser TTS for fallback
+     */
+    async speakBrowserTTS(text) {
+        return new Promise((resolve) => {
+            if (!window.speechSynthesis) {
+                resolve();
+                return;
+            }
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
+            
+            utterance.onend = () => resolve();
+            utterance.onerror = () => resolve(); // Resolve anyway to not break flow
+            
+            window.speechSynthesis.speak(utterance);
+            console.log('🔊 Using browser TTS fallback');
+        });
+    }
+    
     speakBrowser(text) {
         if (!window.speechSynthesis) return;
         
@@ -5979,6 +6441,319 @@ class RHEAController {
         }, 100);
     }
     
+    // Lightweight structured pipeline: interpret common DAW intents with context + confirmation
+    async handleStructuredPipeline(originalTranscript, normalizedCommand, options = {}) {
+        const context = this.latestContextSnapshot || {};
+        const intent = this.buildStructuredIntent(originalTranscript, normalizedCommand, context, options);
+        if (!intent) return false;
+
+        // Ask for confirmation if confidence is low or context is ambiguous
+        if (intent.needsConfirmation || intent.confidence < this.intentConfidenceThreshold) {
+            this.pendingStructuredCommand = intent;
+            const prompt = intent.confirmPrompt || `Did you mean ${intent.readable || 'that'}?`;
+            this.speak(prompt);
+            return true;
+        }
+
+        const executed = await this.executeStructuredCommand(intent, { confirmed: true });
+        if (executed && intent.confirmation) {
+            this.speak(intent.confirmation);
+        }
+        return executed;
+    }
+
+    buildStructuredIntent(transcript, normalizedCommand, context = {}, options = {}) {
+        if (!transcript) return null;
+        const conf = typeof options.confidence === 'number' ? options.confidence : 0.75;
+        const lower = (normalizedCommand || transcript.toLowerCase()).trim();
+        const clean = lower.replace(/[^a-z0-9\s]/gi, ' ').replace(/\s+/g, ' ').trim();
+
+        const trackRef = this.resolveTrackReference(lower, context, options.hoverContext);
+        const hasTrack = Number.isFinite(trackRef?.track);
+
+        // Transport
+        if (/\b(stop|halt|cut it|kill it|stop playback)\b/.test(clean)) {
+            return { intent: 'transport', action: 'stop', confidence: Math.max(conf, 0.9), confirmation: 'Stopped' };
+        }
+        if (/\b(play|start playback|playback|let s hear it|hit play|resume|continue)\b/.test(clean)) {
+            return { intent: 'transport', action: 'play', confidence: Math.max(conf, 0.9), confirmation: 'Playing' };
+        }
+        if (/\b(record|roll tape|start recording|hit record)\b/.test(clean)) {
+            return { intent: 'transport', action: 'record', confidence: Math.max(conf, 0.9), confirmation: 'Recording' };
+        }
+        if (/\b(pause|hold on|wait)\b/.test(clean)) {
+            return { intent: 'transport', action: 'pause', confidence: Math.max(conf, 0.85), confirmation: 'Paused' };
+        }
+        if (/\b(rewind|back to start|go to start|from the top)\b/.test(clean)) {
+            return { intent: 'transport', action: 'rewind', confidence: Math.max(conf, 0.85), confirmation: 'Rewinding' };
+        }
+
+        // Track toggles (mute/solo/arm)
+        const trackActionMatch = lower.match(/\b(mute|unmute|solo|unsolo|arm|disarm)\b/);
+        if (trackActionMatch) {
+            const verb = trackActionMatch[1];
+            const targetTrack = hasTrack ? trackRef.track : null;
+            const needsConfirmation = !hasTrack && /\b(this|that|selected|current)\b/.test(lower);
+            const readable = targetTrack ? `${verb} track ${targetTrack}` : `${verb} this track`;
+            return {
+                intent: 'track',
+                action: verb,
+                targetTrack,
+                confidence: hasTrack ? Math.max(conf, 0.9) : Math.min(conf, 0.72),
+                needsConfirmation: !hasTrack || needsConfirmation,
+                readable,
+                confirmPrompt: needsConfirmation ? `Do you want to ${verb} the current track?` : `Confirm ${readable}?`,
+                confirmation: targetTrack ? `${verb} track ${targetTrack}` : `${verb} track`
+            };
+        }
+
+        // Track volume adjustments
+        if (/\b(volume|level|fader|gain)\b/.test(lower)) {
+            const targetTrack = hasTrack ? trackRef.track : null;
+            const num = this.parseNumericValue(lower);
+            const isUp = /\b(up|louder|increase|raise|boost)\b/.test(lower);
+            const isDown = /\b(down|quieter|decrease|lower|drop|reduce)\b/.test(lower);
+            const isCenter = /\b(reset|unity|zero|default)\b/.test(lower);
+
+            let mode = 'absolute';
+            let unit = 'percent';
+            let value = null;
+
+            if (isCenter && !num) {
+                mode = 'absolute';
+                unit = 'percent';
+                value = 80; // Unity-ish (~0 dB) in many REAPER configs is near 0.79-0.82
+            } else if (num) {
+                unit = num.unit === 'db' ? 'db' : 'percent';
+                value = num.value;
+                if (isUp || isDown) {
+                    mode = 'delta';
+                    if (isDown && value > 0) value = -value;
+                } else {
+                    mode = 'absolute';
+                }
+            } else if (isUp || isDown) {
+                mode = 'delta';
+                unit = 'db';
+                value = isUp ? 3 : -3; // default gentle step
+            }
+
+            const needsConfirmation = !hasTrack;
+            const readable = targetTrack ? `volume ${mode === 'delta' ? (value > 0 ? 'up' : 'down') : 'set'} track ${targetTrack}` : 'volume change this track';
+
+            return {
+                intent: 'track',
+                action: 'volume',
+                targetTrack,
+                mode,
+                unit,
+                value,
+                confidence: hasTrack ? Math.max(conf, 0.85) : Math.min(conf, 0.7),
+                needsConfirmation,
+                readable,
+                confirmPrompt: needsConfirmation ? 'Adjust volume of the current track?' : `Apply volume ${mode === 'delta' ? 'change' : 'set'}?`,
+                confirmation: targetTrack ? `Volume updated for track ${targetTrack}` : 'Volume updated'
+            };
+        }
+
+        // Track pan adjustments
+        if (/\b(pan|panning)\b/.test(lower)) {
+            const targetTrack = hasTrack ? trackRef.track : null;
+            const num = this.parseNumericValue(lower);
+            const isLeft = /\b(left|l)\b/.test(lower);
+            const isRight = /\b(right|r)\b/.test(lower);
+            const isCenter = /\b(center|centre|middle)\b/.test(lower);
+
+            let mode = 'absolute';
+            let value = 0; // center default
+
+            if (isCenter && !num) {
+                value = 0;
+            } else if (num) {
+                // Pan range is -100..100
+                const magnitude = this.clamp(num.value, 0, 100);
+                if (isLeft) value = -magnitude;
+                else if (isRight) value = magnitude;
+                else value = num.value; // assume user included sign
+            } else if (isLeft || isRight) {
+                value = isLeft ? -50 : 50; // gentle move if no number
+            }
+
+            const needsConfirmation = !hasTrack;
+            const readable = targetTrack ? `pan track ${targetTrack}` : 'pan this track';
+
+            return {
+                intent: 'track',
+                action: 'pan',
+                targetTrack,
+                mode: 'absolute',
+                unit: 'percent',
+                value,
+                confidence: hasTrack ? Math.max(conf, 0.85) : Math.min(conf, 0.7),
+                needsConfirmation,
+                readable,
+                confirmPrompt: needsConfirmation ? 'Pan the current track?' : `Pan to ${value > 0 ? 'right' : value < 0 ? 'left' : 'center'}?`,
+                confirmation: targetTrack ? `Panned track ${targetTrack}` : 'Pan updated'
+            };
+        }
+
+        return null;
+    }
+
+    resolveTrackReference(lower, context = {}, hoverContext = null) {
+        // Explicit number
+        const explicit = lower.match(/\b(?:track|channel)\s+(\d+)\b/);
+        if (explicit) {
+            return { track: parseInt(explicit[1], 10), source: 'explicit' };
+        }
+
+        // Deictic / selected
+        if (/\b(this|that|selected|current)\b/.test(lower)) {
+            if (Number.isFinite(context?.activeTrack)) {
+                return { track: context.activeTrack, source: 'activeControl' };
+            }
+            if (hoverContext) {
+                const hovered = this.extractTrackFromControl(hoverContext);
+                if (Number.isFinite(hovered)) {
+                    return { track: hovered, source: 'hover' };
+                }
+            }
+            const selected = Array.isArray(context?.reaperState?.selectedTracks) ? context.reaperState.selectedTracks : [];
+            if (selected.length > 0 && selected[0]?.number) {
+                return { track: selected[0].number, source: 'selected' };
+            }
+            // Ambiguous
+            return { track: null, source: 'deictic' };
+        }
+
+        return { track: null, source: 'none' };
+    }
+
+    parseNumericValue(lower) {
+        // Extract number with optional units
+        const numUnit = lower.match(/([-+]?\d+(?:\.\d+)?)\s*(db|dB|percent|%)/i);
+        if (numUnit) {
+            return { value: parseFloat(numUnit[1]), unit: numUnit[2].toLowerCase().includes('db') ? 'db' : 'percent' };
+        }
+        const plain = lower.match(/([-+]?\d+(?:\.\d+)?)/);
+        if (plain) {
+            return { value: parseFloat(plain[1]), unit: 'raw' };
+        }
+        return null;
+    }
+
+    clamp(val, min, max) {
+        return Math.max(min, Math.min(max, val));
+    }
+
+    isAffirmationCommand(text) {
+        const t = (text || '').trim().toLowerCase();
+        return ['yes', 'yeah', 'yep', 'confirm', 'do it', 'go ahead', 'sure', 'ok', 'okay'].includes(t);
+    }
+
+    isCancelCommand(text) {
+        const t = (text || '').trim().toLowerCase();
+        return ['no', 'cancel', 'stop', 'never mind', 'nevermind', 'abort', 'nah'].includes(t);
+    }
+
+    async executeStructuredCommand(intent, opts = {}) {
+        try {
+            // Transport mapping uses existing action IDs
+            if (intent.intent === 'transport' && intent.action) {
+                const actionId = this.reaperActions[intent.action];
+                if (window.api?.executeReaperAction && actionId) {
+                    await window.api.executeReaperAction(actionId);
+                    return true;
+                }
+            }
+
+            // Track toggles through main-process OSC bridge
+            if (intent.intent === 'track' && intent.action) {
+                const track = intent.targetTrack;
+                if (!Number.isFinite(track)) {
+                    console.warn('⚠️  Structured track command missing track number');
+                    return false;
+                }
+                const commandMap = {
+                    mute: 'mute',
+                    unmute: 'unmute',
+                    solo: 'solo',
+                    unsolo: 'unsolo',
+                    arm: 'arm',
+                    disarm: 'disarm',
+                    volume: 'volume',
+                    pan: 'pan'
+                };
+                const mapped = commandMap[intent.action];
+                if (mapped && window.api?.executeTrackCommand) {
+                    // Compute value for volume/pan if needed
+                    let value = intent.value;
+                    if (intent.action === 'volume') {
+                        value = this.computeVolumeValue(track, intent);
+                        if (value === null) {
+                            this.speak('I need a number for that volume change.');
+                            return false;
+                        }
+                    } else if (intent.action === 'pan') {
+                        value = this.computePanValue(intent);
+                        if (value === null) {
+                            this.speak('I need a pan amount.');
+                            return false;
+                        }
+                    }
+
+                    const result = await window.api.executeTrackCommand(mapped, track, value);
+                    if (result?.success) return true;
+                    console.warn('⚠️  Track command failed:', result);
+                    return false;
+                }
+            }
+        } catch (e) {
+            console.error('❌ Structured command execution failed:', e);
+        }
+        return false;
+    }
+
+    computeVolumeValue(track, intent) {
+        // intent.unit: 'db'|'percent'|'raw'; intent.mode: 'absolute'|'delta'
+        if (!Number.isFinite(intent.value)) return null;
+        const ctx = this.latestContextSnapshot || {};
+        const trackState = ctx.reaperState?.tracks?.[track];
+        const currentLinear = Number.isFinite(trackState?.volume) ? trackState.volume : null; // expected 0-1
+
+        if (intent.mode === 'absolute') {
+            if (intent.unit === 'db') {
+                // Convert dB absolute to linear then percent
+                const linear = Math.pow(10, intent.value / 20);
+                return this.clamp(linear * 100, 0, 100);
+            }
+            if (intent.unit === 'percent' || intent.unit === 'raw') {
+                return this.clamp(intent.value, 0, 100);
+            }
+        } else {
+            // delta
+            if (!Number.isFinite(currentLinear)) {
+                return null; // need current to apply delta
+            }
+            if (intent.unit === 'db') {
+                const linear = currentLinear * Math.pow(10, intent.value / 20);
+                return this.clamp(linear * 100, 0, 100);
+            }
+            if (intent.unit === 'percent' || intent.unit === 'raw') {
+                // convert current to percent and add delta
+                const currentPercent = currentLinear * 100;
+                return this.clamp(currentPercent + intent.value, 0, 100);
+            }
+        }
+        return null;
+    }
+
+    computePanValue(intent) {
+        if (!Number.isFinite(intent.value)) return null;
+        // Pan range expected -100..100
+        return this.clamp(intent.value, -100, 100);
+    }
+
     // Method to change voice settings
     setVoiceSettings(settings) {
         if (settings.rate !== undefined) this.voiceConfig.rate = Math.max(0.1, Math.min(10, settings.rate));

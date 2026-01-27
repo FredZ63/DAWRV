@@ -9,10 +9,20 @@ contextBridge.exposeInMainWorld('dawrv', {
         onError: (callback) => ipcRenderer.on('voice-engine-error', (event, error) => callback(error)),
         onCommand: (callback) => ipcRenderer.on('voice-command', (event, command) => callback(command)),
         onReaperLog: (callback) => ipcRenderer.on('reaper-action-log', (event, message) => callback(message)),
-        onDawState: (callback) => ipcRenderer.on('daw-state-update', (event, state) => callback(state))
+        onDawState: (callback) => ipcRenderer.on('daw-state-update', (event, state) => callback(state)),
+        onContextSnapshot: (callback) => ipcRenderer.on('context-snapshot', (event, snapshot) => callback(snapshot)),
+        getContextSnapshot: () => ipcRenderer.invoke('get-context-snapshot')
     },
     daw: {
         sendCommand: (command, params) => ipcRenderer.invoke('send-daw-command', command, params)
+    },
+    knowledge: {
+        load: () => ipcRenderer.invoke('load-knowledge-base')
+    },
+    vocabulary: {
+        load: () => ipcRenderer.invoke('load-vocabulary'),
+        save: (data) => ipcRenderer.invoke('save-vocabulary', data),
+        loadDefault: () => ipcRenderer.invoke('load-default-vocabulary')
     },
     platform: process.platform,
     version: '1.0.0'

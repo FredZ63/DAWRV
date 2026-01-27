@@ -59,6 +59,10 @@ class AIAgent {
         
         // Knowledge Base (optional)
         this.knowledgeBase = config.knowledgeBase || null;
+
+        // Error log throttling (avoid console spam when misconfigured)
+        this._lastErrorMsg = '';
+        this._lastErrorTs = 0;
         
         // Initialize system prompt
         this.buildSystemPrompt().then(prompt => {
@@ -696,10 +700,17 @@ Remember: You're a real assistant, not just a command parser. Treat the user lik
                 return this.fallbackToKeyword(userInput, reaperActions);
             }
         } catch (error) {
-            console.error('❌ AI processing error:', error);
+            const msg = (error && (error.message || String(error))) || 'AI error';
+            const now = Date.now();
+            // Suppress repeated identical errors in a short window
+            if (!(msg === this._lastErrorMsg && (now - this._lastErrorTs) < 5000)) {
+                this._lastErrorMsg = msg;
+                this._lastErrorTs = now;
+                console.warn('❌ AI processing error:', msg);
+            }
             
             // If rate limited and fallback enabled, use keyword matching
-            if (error.message.includes('Rate limit') && this.config.fallbackToKeyword) {
+            if (msg.includes('Rate limit') && this.config.fallbackToKeyword) {
                 console.log('🔄 Rate limited - falling back to keyword matching');
                 return this.fallbackToKeyword(userInput, reaperActions);
             }
@@ -786,6 +797,20 @@ Remember: You're a real assistant, not just a command parser. Treat the user lik
                 queryContext = await this.knowledgeBase.getContext(userInput, 500);
             } catch (e) {
                 console.warn('Failed to get query context:', e);
+
+        
+        // Also check static knowledge loader (reaper-knowledge.json)
+        if (window.staticKnowledge && window.staticKnowledge.loaded) {
+            try {
+                const staticContext = window.staticKnowledge.getContext(userInput);
+                if (staticContext) {
+                    queryContext = (queryContext || '') + staticContext;
+                    console.log('📚 Added static knowledge context');
+                }
+            } catch (e) {
+                console.warn('Failed to get static knowledge context:', e);
+            }
+        }
             }
         }
         

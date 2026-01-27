@@ -78,7 +78,9 @@ class TTSProvider {
      */
     async initOpenAI() {
         if (!this.config.apiKey) {
-            throw new Error('OpenAI API key required');
+            console.warn('⚠️ OpenAI API key not configured - OpenAI TTS will not be available');
+            console.log('💡 Voice feedback will use browser TTS fallback instead');
+            return { success: false, error: 'No API key configured', fallback: 'browser' };
         }
         
         // Test API key by checking models

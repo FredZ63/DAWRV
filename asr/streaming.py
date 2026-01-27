@@ -52,7 +52,7 @@ class VoiceActivityDetector:
         self,
         sample_rate: int = 16000,
         frame_duration_ms: int = 30,
-        energy_threshold: float = 0.01,
+        energy_threshold: float = 0.25,  # VERY HIGH - only captures loud, direct speech (prevents feedback)
         speech_pad_ms: int = 300,
         min_speech_duration_ms: int = 250,
         max_silence_duration_ms: int = 1000

@@ -1,0 +1,340 @@
+{
+  "name": "DAWRV Default Studio Vocabulary",
+  "version": "1.0",
+  "schemaVersion": 1,
+  "description": "Default vocabulary pack with common studio slang and phrases",
+  "items": [
+    {
+      "id": "default_1",
+      "phrase": "that's hot",
+      "category": "General",
+      "definition": "Expression of approval - the sound or mix is good",
+      "intentType": "vibe",
+      "sentiment": "positive",
+      "tags": ["approval", "fire", "good"],
+      "clarificationRule": "neverAsk",
+      "actionMapping": { "enabled": false, "actions": [] }
+    },
+    {
+      "id": "default_2",
+      "phrase": "that's trash",
+      "category": "General",
+      "definition": "Expression of disapproval - needs work or doesn't sound good",
+      "intentType": "vibe",
+      "sentiment": "negative",
+      "tags": ["disapproval", "fix", "bad"],
+      "clarificationRule": "neverAsk",
+      "actionMapping": { "enabled": false, "actions": [] }
+    },
+    {
+      "id": "default_3",
+      "phrase": "make it slap",
+      "category": "Drums",
+      "definition": "Add punch and impact to the drums or beat - make it hit harder",
+      "intentType": "action",
+      "sentiment": "positive",
+      "tags": ["punch", "impact", "drums", "hard"],
+      "clarificationRule": "askIfAmbiguous",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "comp", "amount": 10, "unit": "percent" },
+          "confirmationText": "Adding some punch"
+        }]
+      }
+    },
+    {
+      "id": "default_4",
+      "phrase": "tuck the vocal",
+      "category": "Vocals",
+      "definition": "Lower the vocal volume slightly to sit better in the mix",
+      "intentType": "action",
+      "sentiment": "neutral",
+      "tags": ["vocal", "volume", "lower", "blend", "sit"],
+      "clarificationRule": "neverAsk",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "volume", "amount": -1.5, "unit": "db" },
+          "confirmationText": "Tucked it back"
+        }]
+      }
+    },
+    {
+      "id": "default_5",
+      "phrase": "bring it forward",
+      "category": "General",
+      "definition": "Make the element more prominent in the mix - louder and more present",
+      "intentType": "action",
+      "sentiment": "positive",
+      "tags": ["louder", "presence", "forward", "upfront"],
+      "clarificationRule": "askIfAmbiguous",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "volume", "amount": 1.5, "unit": "db" },
+          "confirmationText": "Brought it up"
+        }]
+      }
+    },
+    {
+      "id": "default_6",
+      "phrase": "glue it",
+      "category": "Mix Bus",
+      "definition": "Apply bus compression to make elements more cohesive and glued together",
+      "intentType": "action",
+      "sentiment": "neutral",
+      "tags": ["compression", "glue", "bus", "cohesive"],
+      "clarificationRule": "neverAsk",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "comp", "amount": 15, "unit": "percent" },
+          "confirmationText": "Gluing it together"
+        }]
+      }
+    },
+    {
+      "id": "default_7",
+      "phrase": "make it wider",
+      "category": "Sound Design",
+      "definition": "Increase stereo width for a bigger, more spacious sound",
+      "intentType": "action",
+      "sentiment": "positive",
+      "tags": ["stereo", "width", "wide", "spacious"],
+      "clarificationRule": "neverAsk",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "width", "amount": 15, "unit": "percent" },
+          "confirmationText": "Widening it out"
+        }]
+      }
+    },
+    {
+      "id": "default_8",
+      "phrase": "tighten the drums",
+      "category": "Drums",
+      "definition": "Make drums more punchy and controlled with tighter transients",
+      "intentType": "action",
+      "sentiment": "neutral",
+      "tags": ["drums", "transient", "tight", "punch", "control"],
+      "clarificationRule": "askIfAmbiguous",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "comp", "amount": 12, "unit": "percent" },
+          "confirmationText": "Tightening up the drums"
+        }]
+      }
+    },
+    {
+      "id": "default_9",
+      "phrase": "yo that's fire",
+      "category": "General",
+      "definition": "Strong approval - sounds excellent",
+      "intentType": "vibe",
+      "sentiment": "positive",
+      "tags": ["fire", "approval", "hype", "excellent"],
+      "clarificationRule": "neverAsk",
+      "actionMapping": { "enabled": false, "actions": [] }
+    },
+    {
+      "id": "default_10",
+      "phrase": "that hits different",
+      "category": "General",
+      "definition": "Unique and impressive sound quality - stands out in a special way",
+      "intentType": "vibe",
+      "sentiment": "positive",
+      "tags": ["unique", "special", "impressive", "different"],
+      "clarificationRule": "neverAsk",
+      "actionMapping": { "enabled": false, "actions": [] }
+    },
+    {
+      "id": "default_11",
+      "phrase": "add some sauce",
+      "category": "Effects",
+      "definition": "Add flavor and character - reverb, delay, saturation, or other effects",
+      "intentType": "action",
+      "sentiment": "positive",
+      "tags": ["effect", "flavor", "character", "vibe"],
+      "clarificationRule": "alwaysAsk",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "reverb", "amount": 8, "unit": "percent" },
+          "confirmationText": "Adding some sauce"
+        }]
+      }
+    },
+    {
+      "id": "default_12",
+      "phrase": "push the low end",
+      "category": "Bass",
+      "definition": "Increase bass frequencies for more sub and low-end presence",
+      "intentType": "action",
+      "sentiment": "neutral",
+      "tags": ["bass", "low", "sub", "bottom"],
+      "clarificationRule": "askIfAmbiguous",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "eq", "amount": 2, "unit": "db" },
+          "confirmationText": "Pushing the lows"
+        }]
+      }
+    },
+    {
+      "id": "default_13",
+      "phrase": "take the edge off",
+      "category": "General",
+      "definition": "Reduce harshness in high frequencies for a smoother sound",
+      "intentType": "action",
+      "sentiment": "neutral",
+      "tags": ["harsh", "bright", "smooth", "edge"],
+      "clarificationRule": "neverAsk",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "eq", "amount": -2, "unit": "db" },
+          "confirmationText": "Smoothing it out"
+        }]
+      }
+    },
+    {
+      "id": "default_14",
+      "phrase": "needs more air",
+      "category": "Vocals",
+      "definition": "Boost high frequencies for more presence and breathiness",
+      "intentType": "action",
+      "sentiment": "neutral",
+      "tags": ["air", "presence", "high", "bright", "breathy"],
+      "clarificationRule": "neverAsk",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "eq", "amount": 1.5, "unit": "db" },
+          "confirmationText": "Adding some air"
+        }]
+      }
+    },
+    {
+      "id": "default_15",
+      "phrase": "crush it",
+      "category": "Effects",
+      "definition": "Apply heavy compression or limiting for an aggressive, squashed sound",
+      "intentType": "action",
+      "sentiment": "neutral",
+      "tags": ["compression", "limit", "squash", "aggressive"],
+      "clarificationRule": "askIfAmbiguous",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "comp", "amount": 25, "unit": "percent" },
+          "confirmationText": "Crushing it"
+        }]
+      }
+    },
+    {
+      "id": "default_16",
+      "phrase": "that vocal is trash",
+      "category": "Vocals",
+      "definition": "The vocal track needs significant work or fixing",
+      "intentType": "vibe",
+      "sentiment": "negative",
+      "tags": ["vocal", "fix", "bad", "needs work"],
+      "clarificationRule": "neverAsk",
+      "actionMapping": { "enabled": false, "actions": [] }
+    },
+    {
+      "id": "default_17",
+      "phrase": "we cooking now",
+      "category": "General",
+      "definition": "Things are going well - the session is productive and sounds good",
+      "intentType": "vibe",
+      "sentiment": "positive",
+      "tags": ["cooking", "progress", "good", "productive"],
+      "clarificationRule": "neverAsk",
+      "actionMapping": { "enabled": false, "actions": [] }
+    },
+    {
+      "id": "default_18",
+      "phrase": "turn it up",
+      "category": "General",
+      "definition": "Increase the volume of the selected element",
+      "intentType": "action",
+      "sentiment": "positive",
+      "tags": ["louder", "volume", "up"],
+      "clarificationRule": "askIfAmbiguous",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "volume", "amount": 2, "unit": "db" },
+          "confirmationText": "Turning it up"
+        }]
+      }
+    },
+    {
+      "id": "default_19",
+      "phrase": "pull it back",
+      "category": "General",
+      "definition": "Decrease the volume or intensity of the selected element",
+      "intentType": "action",
+      "sentiment": "neutral",
+      "tags": ["softer", "volume", "down", "back"],
+      "clarificationRule": "askIfAmbiguous",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "volume", "amount": -2, "unit": "db" },
+          "confirmationText": "Pulling it back"
+        }]
+      }
+    },
+    {
+      "id": "default_20",
+      "phrase": "give it some room",
+      "category": "Effects",
+      "definition": "Add reverb or space to make the sound less dry",
+      "intentType": "action",
+      "sentiment": "neutral",
+      "tags": ["reverb", "space", "room", "wet"],
+      "clarificationRule": "neverAsk",
+      "actionMapping": {
+        "enabled": true,
+        "actions": [{
+          "target": "selectedTrack",
+          "type": "parameterDelta",
+          "payload": { "paramName": "reverb", "amount": 12, "unit": "percent" },
+          "confirmationText": "Adding some room"
+        }]
+      }
+    }
+  ]
+}

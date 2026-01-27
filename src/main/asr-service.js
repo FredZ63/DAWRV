@@ -17,7 +17,7 @@ class ASRService extends EventEmitter {
         this.isRunning = false;
         this.isPaused = false;
         this.config = {
-            provider: 'local', // 'local' (streaming whisper/faster-whisper) | 'deepgram' (cloud streaming)
+            provider: 'deepgram', // 'local' (streaming whisper/faster-whisper) | 'deepgram' (cloud streaming)
             modelSize: 'base',
             mode: 'command',
             confidenceThreshold: 0.55,
@@ -36,10 +36,20 @@ class ASRService extends EventEmitter {
         this.commandFile = '/tmp/dawrv_voice_command.txt';
         this.statusFile = '/tmp/dawrv_asr_status.json';
         this.speakingSignal = '/tmp/rhea_speaking'; // Must match Python listener!
+        this.userSpeakingFile = '/tmp/dawrv_user_speaking.json'; // VAD-driven barge-in signal (Deepgram provider)
         
         // File watcher for commands
         this.commandWatcher = null;
         this.lastCommandTime = 0;
+
+        // User-speaking watcher (for barge-in)
+        this.userSpeakingWatcher = null;
+        this.lastUserSpeakingTimestamp = 0;
+
+        // Provider health / fallback
+        this._lastStderr = '';
+        this._activeProvider = null;
+        this._fallbackAttempted = false;
         
         console.log('🎤 ASR Service initialized');
     }
@@ -53,7 +63,14 @@ class ASRService extends EventEmitter {
             if (fs.existsSync(configPath)) {
                 const saved = JSON.parse(fs.readFileSync(configPath, 'utf8'));
                 this.config = { ...this.config, ...saved };
-                console.log('📂 ASR config loaded:', this.config);
+                // Trim API key to remove any whitespace
+                if (this.config.deepgramApiKey && typeof this.config.deepgramApiKey === 'string') {
+                    this.config.deepgramApiKey = this.config.deepgramApiKey.trim();
+                }
+                // Never log secrets
+                const redacted = { ...this.config };
+                if (redacted.deepgramApiKey) redacted.deepgramApiKey = '[REDACTED]';
+                console.log('📂 ASR config loaded:', redacted);
             }
         } catch (err) {
             console.error('Error loading ASR config:', err);
@@ -82,6 +99,10 @@ class ASRService extends EventEmitter {
             console.log('⚠️ ASR already running');
             return { success: true, message: 'Already running' };
         }
+
+        // Reset fallback state per start attempt
+        this._fallbackAttempted = false;
+        this._lastStderr = '';
         
         // KILL conflicting Whisper listener first!
         console.log('🔪 Killing any conflicting Whisper listeners...');
@@ -109,14 +130,51 @@ class ASRService extends EventEmitter {
         
         // Select provider script
         let provider = (this.config.provider || 'local').toLowerCase();
-        if (provider === 'deepgram' && !process.env.DEEPGRAM_API_KEY && !process.env.DG_API_KEY) {
-            console.log('⚠️ DEEPGRAM_API_KEY missing; falling back to local ASR');
-            provider = 'local';
-            this.config.provider = 'local';
+        if (provider === 'deepgram') {
+            // Check for API key in env vars OR config
+            const hasEnvKey = !!(process.env.DEEPGRAM_API_KEY || process.env.DG_API_KEY);
+            const hasConfigKey = !!(this.config.deepgramApiKey && this.config.deepgramApiKey.trim());
+            
+            if (!hasEnvKey && !hasConfigKey) {
+                console.log('⚠️ DEEPGRAM_API_KEY missing in both env and config; falling back to local ASR');
+                provider = 'local';
+                this.config.provider = 'local';
+            } else if (!hasEnvKey && hasConfigKey) {
+                console.log('✅ Using Deepgram API key from config');
+            }
+        } else if (provider === 'gemini') {
+            // Check for Gemini API key
+            const hasEnvKey = !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+            const hasConfigKey = !!(this.config.geminiApiKey && this.config.geminiApiKey.trim());
+            
+            if (!hasEnvKey && !hasConfigKey) {
+                console.log('⚠️ GEMINI_API_KEY missing in both env and config; falling back to local ASR');
+                provider = 'local';
+                this.config.provider = 'local';
+            } else if (!hasEnvKey && hasConfigKey) {
+                console.log('✅ Using Gemini API key from config');
+            }
+        } else if (provider === 'assemblyai') {
+            // Check for AssemblyAI API key
+            const hasEnvKey = !!process.env.ASSEMBLYAI_API_KEY;
+            const hasConfigKey = !!(this.config.assemblyaiApiKey && this.config.assemblyaiApiKey.trim());
+            
+            if (!hasEnvKey && !hasConfigKey) {
+                console.log('⚠️ ASSEMBLYAI_API_KEY missing in both env and config; falling back to local ASR');
+                provider = 'local';
+                this.config.provider = 'local';
+            } else if (!hasEnvKey && hasConfigKey) {
+                console.log('✅ Using AssemblyAI API key from config');
+            }
         }
+        this._activeProvider = provider;
 
         const scriptPath = (provider === 'deepgram')
             ? path.join(this.asrPath, 'deepgram_to_dawrv.py')
+            : (provider === 'gemini')
+            ? path.join(this.asrPath, 'gemini_to_dawrv.py')
+            : (provider === 'assemblyai')
+            ? path.join(this.asrPath, 'assemblyai_to_dawrv.py')
             : path.join(this.asrPath, 'asr_to_dawrv.py');
         
         // Check if script exists
@@ -133,8 +191,45 @@ class ASRService extends EventEmitter {
             }
 
             const env = { ...process.env, PYTHONUNBUFFERED: '1' };
-            if (provider === 'deepgram' && this.config.deepgramApiKey && !env.DEEPGRAM_API_KEY) {
-                env.DEEPGRAM_API_KEY = this.config.deepgramApiKey;
+            if (provider === 'deepgram') {
+                // Prefer env var, but fall back to config if needed
+                if (!env.DEEPGRAM_API_KEY && !env.DG_API_KEY) {
+                    const configKey = (this.config.deepgramApiKey || '').trim();
+                    if (configKey) {
+                        env.DEEPGRAM_API_KEY = configKey;
+                        console.log('🔑 Using Deepgram API key from config (key length:', configKey.length, ')');
+                    } else {
+                        console.error('❌ No Deepgram API key found in config or environment');
+                    }
+                } else {
+                    console.log('🔑 Using Deepgram API key from environment variable');
+                }
+            } else if (provider === 'gemini') {
+                // Prefer env var, but fall back to config if needed
+                if (!env.GEMINI_API_KEY && !env.GOOGLE_API_KEY) {
+                    const configKey = (this.config.geminiApiKey || '').trim();
+                    if (configKey) {
+                        env.GEMINI_API_KEY = configKey;
+                        console.log('🔑 Using Gemini API key from config (key length:', configKey.length, ')');
+                    } else {
+                        console.error('❌ No Gemini API key found in config or environment');
+                    }
+                } else {
+                    console.log('🔑 Using Gemini API key from environment variable');
+                }
+            } else if (provider === 'assemblyai') {
+                // Prefer env var, but fall back to config if needed
+                if (!env.ASSEMBLYAI_API_KEY) {
+                    const configKey = (this.config.assemblyaiApiKey || '').trim();
+                    if (configKey) {
+                        env.ASSEMBLYAI_API_KEY = configKey;
+                        console.log('🔑 Using AssemblyAI API key from config (key length:', configKey.length, ')');
+                    } else {
+                        console.error('❌ No AssemblyAI API key found in config or environment');
+                    }
+                } else {
+                    console.log('🔑 Using AssemblyAI API key from environment variable');
+                }
             }
             if (provider !== 'deepgram') {
                 const spModel = (this.config.secondPassModelSize || '').trim();
@@ -162,13 +257,43 @@ class ASRService extends EventEmitter {
             });
             
             this.process.stderr.on('data', (data) => {
-                console.error(`[ASR Error] ${data.toString()}`);
+                const msg = data.toString();
+                this._lastStderr = (this._lastStderr + '\n' + msg).slice(-4000);
+                console.error(`[ASR Error] ${msg}`);
+                // Friendly surfaced error for common auth failures
+                if (msg.includes('HTTP 401') || msg.includes('401')) {
+                    this.emit('error', 'Deepgram unauthorized (HTTP 401). Check your DEEPGRAM_API_KEY / Deepgram API key in Advanced ASR settings.');
+                }
             });
             
             this.process.on('close', (code) => {
                 console.log(`[ASR] Process exited with code ${code}`);
                 this.isRunning = false;
                 this.emit('stopped', code);
+
+                // Auto-fallback: if Deepgram fails (401 / websocket start fail), immediately switch to local ASR
+                // so voice control remains functional.
+                try {
+                    const wasDeepgram = (this._activeProvider === 'deepgram');
+                    const stderr = String(this._lastStderr || '');
+                    const looksAuth = stderr.includes('HTTP 401') || stderr.includes('401') || stderr.toLowerCase().includes('unauthorized');
+                    const looksStartFail = stderr.toLowerCase().includes('failed to start deepgram websocket') ||
+                        stderr.toLowerCase().includes('server rejected') ||
+                        stderr.toLowerCase().includes('websocketconnection') ||
+                        stderr.toLowerCase().includes('websocketexception');
+
+                    if (wasDeepgram && code !== 0 && !this._fallbackAttempted && (looksAuth || looksStartFail)) {
+                        this._fallbackAttempted = true;
+                        console.log('🛟 Deepgram failed — falling back to local ASR automatically');
+                        this.config.provider = 'local';
+                        this.saveConfig();
+                        this.emit('providerFallback', { from: 'deepgram', to: 'local', reason: looksAuth ? 'auth' : 'connection' });
+                        setTimeout(() => {
+                            // Fire-and-forget restart (avoid unhandled promises)
+                            this.start().catch(() => {});
+                        }, 500);
+                    }
+                } catch (_) {}
             });
             
             this.process.on('error', (err) => {
@@ -179,6 +304,7 @@ class ASRService extends EventEmitter {
             
             this.isRunning = true;
             this.startCommandWatcher();
+            this.startUserSpeakingWatcher();
             
             this.emit('started');
             return { success: true, message: 'ASR started' };
@@ -200,6 +326,7 @@ class ASRService extends EventEmitter {
         console.log('🛑 Stopping ASR service');
         
         this.stopCommandWatcher();
+        this.stopUserSpeakingWatcher();
         
         try {
             this.process.kill('SIGTERM');
@@ -298,6 +425,45 @@ class ASRService extends EventEmitter {
             clearInterval(this.commandWatcher);
             this.commandWatcher = null;
             console.log('👀 Command watcher stopped');
+        }
+    }
+
+    /**
+     * Start watching for user-speaking (VAD) events for barge-in.
+     * This is intentionally low-latency (50ms) to stop TTS quickly when user starts talking.
+     */
+    startUserSpeakingWatcher() {
+        if (this.userSpeakingWatcher) return;
+
+        this.userSpeakingWatcher = setInterval(() => {
+            this.checkUserSpeakingFile();
+        }, 50);
+    }
+
+    stopUserSpeakingWatcher() {
+        if (this.userSpeakingWatcher) {
+            clearInterval(this.userSpeakingWatcher);
+            this.userSpeakingWatcher = null;
+        }
+    }
+
+    checkUserSpeakingFile() {
+        try {
+            if (!fs.existsSync(this.userSpeakingFile)) return;
+            const data = JSON.parse(fs.readFileSync(this.userSpeakingFile, 'utf8'));
+            const ts = Number(data?.timestamp || 0);
+            if (!ts || !Number.isFinite(ts)) return;
+
+            // Emit only on monotonic timestamp updates
+            if (ts > this.lastUserSpeakingTimestamp) {
+                this.lastUserSpeakingTimestamp = ts;
+                this.emit('userSpeaking', {
+                    timestamp: ts,
+                    rms: Number(data?.rms || 0)
+                });
+            }
+        } catch (err) {
+            // Ignore parse errors / races
         }
     }
     

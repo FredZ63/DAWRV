@@ -301,6 +301,40 @@ if (asrSettingsBtn) {
     });
 }
 
+// Setup Voice Pipeline settings button
+const voicePipelineBtn = document.getElementById('voice-pipeline-btn');
+if (voicePipelineBtn) {
+    voicePipelineBtn.addEventListener('click', () => {
+        console.log('🎙️ Opening Voice Pipeline Settings...');
+        if (window.voicePipelineSettings) {
+            window.voicePipelineSettings.show();
+        } else if (typeof VoicePipelineSettingsUI !== 'undefined' && window.voicePipelineIntegration) {
+            window.voicePipelineSettings = new VoicePipelineSettingsUI(window.voicePipelineIntegration);
+            window.voicePipelineSettings.show();
+        } else {
+            console.error('VoicePipelineSettingsUI not loaded');
+            alert('Voice Pipeline not initialized. Please wait a moment and try again.');
+        }
+    });
+}
+
+// Setup Studio Vocabulary button
+const studioVocabBtn = document.getElementById('studio-vocab-btn');
+if (studioVocabBtn) {
+    studioVocabBtn.addEventListener('click', async () => {
+        console.log('🎤 Opening Studio Vocabulary...');
+        if (window.studioVocabularyUI) {
+            await window.studioVocabularyUI.show();
+        } else if (typeof StudioVocabularyUI !== 'undefined') {
+            window.studioVocabularyUI = new StudioVocabularyUI();
+            await window.studioVocabularyUI.show();
+        } else {
+            console.error('StudioVocabularyUI not loaded');
+            alert('Studio Vocabulary not initialized. Please wait a moment and try again.');
+        }
+    });
+}
+
 // Log startup
 console.log('✅ DAWRV Application Initialized');
 console.log('🎤 Waiting for RHEA voice engine...');

@@ -107,7 +107,13 @@ class DAWRVApp {
             
             // Connect screen awareness to context manager
             this.screenAwareness.on('element-detected', (element) => {
-                this.contextManager.setActiveControl(element);
+                // Feed screen element into context manager for "this/that" resolution
+                try {
+                    this.contextManager.setActiveControl(element);
+                    this.emitContextSnapshot();
+                } catch (e) {
+                    console.warn('⚠️ Failed to update context from screen awareness:', e?.message || e);
+                }
                 
                 // Forward to renderer for announcement
                 if (this.mainWindow) {
@@ -116,10 +122,20 @@ class DAWRVApp {
             });
             
             this.screenAwareness.on('control-activated', (element) => {
+                try {
+                    this.contextManager.setActiveControl(element);
+                    this.emitContextSnapshot();
+                } catch (e) {
+                    console.warn('⚠️ Failed to update context from control activation:', e?.message || e);
+                }
                 if (this.mainWindow) {
                     this.mainWindow.webContents.send('screen-control-activated', element);
                 }
             });
+
+            // Keep renderer in sync when context changes/clears
+            this.contextManager.on('context-changed', () => this.emitContextSnapshot());
+            this.contextManager.on('context-cleared', () => this.emitContextSnapshot());
             
             // Connect ReaScript service to renderer for accurate control detection
             this.reaScriptService.on('control-touched', (controlInfo) => {
@@ -132,6 +148,22 @@ class DAWRVApp {
                 
                 // Feed to learning service (hover detection)
                 this.controlLearning.onHover(controlInfo);
+
+                // Update context manager with ReaScript-derived control data
+                try {
+                    const elementLike = {
+                        type: controlInfo.control_type,
+                        role: controlInfo.context || 'reascript',
+                        title: controlInfo.track_name || `Track ${controlInfo.track_number || ''}`,
+                        value: controlInfo.value_formatted,
+                        description: controlInfo.parameter || null,
+                        position: { x: 0, y: 0 } // ReaScript doesn't give cursor position
+                    };
+                    this.contextManager.setActiveControl(elementLike);
+                    this.emitContextSnapshot();
+                } catch (e) {
+                    console.warn('⚠️ Failed to update context from ReaScript:', e?.message || e);
+                }
                 
                 // Get smart identification with learning
                 const identification = this.controlLearning.getControlIdentification(controlInfo);
@@ -1097,6 +1129,29 @@ class DAWRVApp {
         }
     }
 
+    /**
+     * Build a lightweight context snapshot for RHEA (what the user is touching/hovering).
+     */
+    buildContextSnapshot() {
+        const cm = this.contextManager;
+        return {
+            activeControl: cm?.getActiveControl ? cm.getActiveControl() : null,
+            activeTrack: cm?.getActiveTrack ? cm.getActiveTrack() : null,
+            history: cm?.getHistory ? cm.getHistory() : [],
+            reaperState: cm?.reaperState || {},
+            timestamp: Date.now()
+        };
+    }
+
+    /**
+     * Emit the current context snapshot to the renderer.
+     */
+    emitContextSnapshot() {
+        if (this.mainWindow) {
+            this.mainWindow.webContents.send('context-snapshot', this.buildContextSnapshot());
+        }
+    }
+
     startFileWatcher() {
         if (this.fileWatcherInterval) {
             console.log('👂 File watcher already running');
@@ -1214,6 +1269,97 @@ class DAWRVApp {
         }
         
         this.ipcSetup = true;
+
+        // Context snapshot (RHEA's "eyes")
+        ipcMain.handle('get-context-snapshot', async () => {
+            try {
+                return this.buildContextSnapshot();
+            } catch (e) {
+                console.error('❌ Failed to build context snapshot:', e);
+                return { error: e?.message || 'context unavailable' };
+            }
+        });
+        
+        // Knowledge base loader
+        ipcMain.handle('load-knowledge-base', async () => {
+            try {
+                const fs = require('fs');
+                const path = require('path');
+                
+                // Try multiple paths to find knowledge file
+                const possiblePaths = [
+                    path.join(__dirname, '..', '..', 'knowledge', 'reaper-knowledge.json'),
+                    path.join(__dirname, '..', 'knowledge', 'reaper-knowledge.json'),
+                    path.join(process.cwd(), 'knowledge', 'reaper-knowledge.json'),
+                    path.join(app.getAppPath(), 'knowledge', 'reaper-knowledge.json')
+                ];
+                
+                for (const knowledgePath of possiblePaths) {
+                    try {
+                        if (fs.existsSync(knowledgePath)) {
+                            const content = fs.readFileSync(knowledgePath, 'utf8');
+                            console.log('📚 Knowledge loaded from:', knowledgePath);
+                            return { success: true, data: JSON.parse(content) };
+                        }
+                    } catch (e) {
+                        // Try next path
+                    }
+                }
+                
+                console.warn('⚠️ Knowledge file not found in any location');
+                return { success: false, error: 'Knowledge file not found' };
+            } catch (e) {
+                console.error('❌ Failed to load knowledge:', e);
+                return { success: false, error: e.message };
+            }
+        });
+        
+        // Studio Vocabulary handlers
+        const vocabularyPath = path.join(app.getPath('userData'), 'vocabulary.json');
+        
+        ipcMain.handle('load-vocabulary', async () => {
+            try {
+                const fs = require('fs');
+                if (fs.existsSync(vocabularyPath)) {
+                    const content = fs.readFileSync(vocabularyPath, 'utf8');
+                    console.log('🎤 Vocabulary loaded from:', vocabularyPath);
+                    return { success: true, data: JSON.parse(content) };
+                }
+                return { success: false, error: 'File not found' };
+            } catch (e) {
+                console.error('❌ Failed to load vocabulary:', e);
+                return { success: false, error: e.message };
+            }
+        });
+        
+        ipcMain.handle('save-vocabulary', async (event, data) => {
+            try {
+                const fs = require('fs');
+                fs.writeFileSync(vocabularyPath, JSON.stringify(data, null, 2));
+                console.log('🎤 Vocabulary saved to:', vocabularyPath);
+                return { success: true };
+            } catch (e) {
+                console.error('❌ Failed to save vocabulary:', e);
+                return { success: false, error: e.message };
+            }
+        });
+        
+        ipcMain.handle('load-default-vocabulary', async () => {
+            try {
+                const fs = require('fs');
+                const defaultPath = path.join(__dirname, '..', '..', 'knowledge', 'default-studio-vocabulary.json');
+                
+                if (fs.existsSync(defaultPath)) {
+                    const content = fs.readFileSync(defaultPath, 'utf8');
+                    console.log('🎤 Default vocabulary loaded from:', defaultPath);
+                    return { success: true, data: JSON.parse(content) };
+                }
+                return { success: false, error: 'Default vocabulary not found' };
+            } catch (e) {
+                console.error('❌ Failed to load default vocabulary:', e);
+                return { success: false, error: e.message };
+            }
+        });
         
         // REGISTER PLUGIN HANDLER FIRST - before anything else to ensure it's available
         console.log('🔌 REGISTERING PLUGIN HANDLER FIRST (at start of setupIPC)...');
@@ -1317,21 +1463,72 @@ class DAWRVApp {
         
         ipcMain.handle('execute-reaper-action', async (event, actionId) => {
             const logMessage = `🎯 IPC HANDLER CALLED: execute-reaper-action | Action ID: ${actionId} | Time: ${new Date().toISOString()}`;
-            console.log('🎯 ========================================');
-            console.log('🎯 IPC HANDLER CALLED: execute-reaper-action');
-            console.log('🎯 EXECUTING REAPER ACTION');
-            console.log('🎯 Action ID:', actionId);
-            console.log('🎯 Action ID type:', typeof actionId);
-            console.log('🎯 Timestamp:', new Date().toISOString());
-            console.log('🎯 Event sender ID:', event.sender.id);
-            console.log('🎯 ========================================');
+            console.log('🎯 IPC HANDLER CALLED: execute-reaper-action | ID:', actionId);
             
             // Also send to renderer for debugging
             if (this.mainWindow) {
                 this.mainWindow.webContents.send('reaper-action-log', logMessage);
             }
             
+            // ⚡ FAST PATH: Send OSC directly (no Python overhead!)
             return new Promise((resolve) => {
+                const startTime = Date.now();
+                let resolved = false;
+                
+                try {
+                    const dgram = require('dgram');
+                    const osc = require('osc');
+                    
+                    // Build OSC message using osc library
+                    const message = {
+                        address: `/action/${actionId}`,
+                        args: []
+                    };
+                    
+                    const oscBuffer = osc.writePacket(message);
+                    
+                    // Send UDP packet
+                    const client = dgram.createSocket('udp4');
+                    client.send(oscBuffer, 8000, '127.0.0.1', (err) => {
+                        client.close();
+                        if (resolved) return; // Already resolved by timeout
+                        resolved = true;
+                        
+                        const duration = Date.now() - startTime;
+                        
+                        if (err) {
+                            console.error(`❌ OSC send failed (${duration}ms):`, err);
+                            // Fall back to Python bridge
+                            this.executePythonBridge(actionId, resolve);
+                        } else {
+                            console.log(`✅ OSC sent instantly (${duration}ms): /action/${actionId}`);
+                            resolve({ success: true, method: 'osc-direct', duration });
+                        }
+                    });
+                    
+                    // Timeout - assume success if no error within 50ms
+                    // (OSC is fire-and-forget, we don't get REAPER confirmation)
+                    setTimeout(() => {
+                        if (resolved) return;
+                        resolved = true;
+                        const duration = Date.now() - startTime;
+                        console.log(`✅ OSC sent (assumed success after ${duration}ms): /action/${actionId}`);
+                        resolve({ success: true, method: 'osc-direct', duration });
+                    }, 50); // 50ms timeout - fast!
+                    
+                } catch (error) {
+                    console.error('❌ Direct OSC failed:', error);
+                    if (!resolved) {
+                        resolved = true;
+                        // Fall back to Python bridge
+                        this.executePythonBridge(actionId, resolve);
+                    }
+                }
+            });
+        });
+        
+        // Python bridge fallback method (extracted for reuse)
+        this.executePythonBridge = (actionId, resolve) => {
                 // Use Python bridge script - handle both development and packaged app
                 let bridgeScript;
                 if (app.isPackaged) {
@@ -1500,8 +1697,7 @@ class DAWRVApp {
                         resolve({ success: true, message: 'Command sent (assumed success)' });
                     }
                 });
-            });
-        });
+        }; // End of executePythonBridge method
 
         // Don't auto-start - wait for user to click "Start Listening"
         // Just mark voice engine as ready
@@ -2460,6 +2656,7 @@ try {
         if (dawrvApp.contextManager) {
             dawrvApp.contextManager.updateReaperState(state);
         }
+        dawrvApp.emitContextSnapshot();
     });
     dawrvApp.dawStateService.on('error', (err) => {
         console.warn('⚠️  DAW state service error:', err.message);
