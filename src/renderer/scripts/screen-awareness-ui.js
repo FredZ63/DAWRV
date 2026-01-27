@@ -37,11 +37,18 @@ class ScreenAwarenessUI {
         this.valueAnnouncementId = 0; // Unique ID to prevent duplicate announcements
         this.suppressNormalAnnouncements = false; // Suppress regular announcements during fader movement
         
-        // SWIPE DETECTION - Prevent announcing every channel when swiping across mixer
+        // HOVER SETTLE - Only announce when mouse has settled on the SAME control
+        this.hoverSettleTime = 400; // Must hover on same control for 400ms before announcing
+        this.hoverSettleTimer = null;
+        this.lastHoveredControl = null; // {track, control_type, timestamp}
+        this.pendingAnnouncement = null; // The announcement waiting to be spoken
+        this.lastAnnouncedControl = null; // What we last announced (to avoid repeats)
+        
+        // SWIPE DETECTION - Backup detection for rapid scrolling
         this.trackChangeHistory = []; // Track recent track number changes with timestamps
-        this.swipeDetectionWindow = 200; // Look at last 200ms of track changes
-        this.swipeThreshold = 3; // If 3+ track changes in the window, it's a swipe
-        this.swipeSettleTime = 250; // Must settle for 250ms after swipe (FASTER)
+        this.swipeDetectionWindow = 150; // Look at last 150ms of track changes
+        this.swipeThreshold = 2; // If 2+ track changes in the window, it's a swipe
+        this.swipeSettleTime = 300; // Must settle for 300ms after swipe
         this.lastTrackChangeTime = 0;
         this.isSwiping = false;
         this.swipeSettleTimer = null;
@@ -237,86 +244,87 @@ class ScreenAwarenessUI {
                     }
                     
                     // ============================================
-                    // SWIPE DETECTION - Don't announce while swiping across channels
+                    // HOVER SETTLE - Only announce when hovering on SAME control
                     // ============================================
                     const currentTrackNum = identification.rawData?.track_number;
+                    const currentControlType = identification.prediction?.control_type;
                     const now = Date.now();
                     
-                    // Track channel/track changes for swipe detection
-                    if (currentTrackNum !== undefined && currentTrackNum !== this.lastAnnouncedTrack) {
-                        this.trackChangeHistory.push({ track: currentTrackNum, time: now });
-                        
-                        // Clean old entries outside the detection window
-                        this.trackChangeHistory = this.trackChangeHistory.filter(
-                            entry => now - entry.time < this.swipeDetectionWindow
-                        );
-                        
-                        // Detect swipe: multiple track changes in short time
-                        if (this.trackChangeHistory.length >= this.swipeThreshold) {
-                            this.isSwiping = true;
-                            console.log(`🖐️ SWIPE detected (${this.trackChangeHistory.length} changes) - silencing`);
-                            
-                            // Cancel any pending announcements
-                            if (this.announcementDebounceTimer) {
-                                clearTimeout(this.announcementDebounceTimer);
-                                this.announcementDebounceTimer = null;
-                            }
-                            if (this.swipeSettleTimer) {
-                                clearTimeout(this.swipeSettleTimer);
-                            }
-                            
-                            // Set timer to exit swipe mode after settling
-                            this.swipeSettleTimer = setTimeout(() => {
-                                console.log('✋ Swipe ended - ready to announce');
-                                this.isSwiping = false;
-                                this.trackChangeHistory = [];
-                            }, this.swipeSettleTime);
+                    // Create a unique ID for this control
+                    const currentControlId = `${currentTrackNum}-${currentControlType}`;
+                    
+                    // Check if this is a DIFFERENT control than what we were hovering
+                    const controlChanged = this.lastHoveredControl?.id !== currentControlId;
+                    
+                    if (controlChanged) {
+                        // Control changed - cancel any pending announcement
+                        if (this.hoverSettleTimer) {
+                            clearTimeout(this.hoverSettleTimer);
+                            this.hoverSettleTimer = null;
                         }
                         
-                        this.lastAnnouncedTrack = currentTrackNum;
-                    }
-                    
-                    // Don't announce while swiping
-                    if (this.isSwiping) {
-                        return;
-                    }
-                    
-                    // Cancel any pending announcement (debounce)
-                    if (this.announcementDebounceTimer) {
-                        clearTimeout(this.announcementDebounceTimer);
-                    }
-                    
-                    // Speak the smart announcement after settling
-                    if (!this.visualOnly && identification.announcement) {
-                        if (this.rhea) {
-                            // Announce after 200ms delay (FAST response once settled)
-                            this.announcementDebounceTimer = setTimeout(() => {
-                                // Double-check we're not swiping
-                                if (this.isSwiping || this.suppressNormalAnnouncements) {
-                                    console.log('🔇 Suppressed:', this.isSwiping ? 'swiping' : 'fader moving');
-                                    return;
+                        // Track this as the new hovered control
+                        this.lastHoveredControl = {
+                            id: currentControlId,
+                            track: currentTrackNum,
+                            controlType: currentControlType,
+                            timestamp: now,
+                            announcement: identification.announcement
+                        };
+                        
+                        // SWIPE DETECTION - Track rapid channel changes
+                        if (currentTrackNum !== undefined && currentTrackNum !== this.lastAnnouncedTrack) {
+                            this.trackChangeHistory.push({ track: currentTrackNum, time: now });
+                            this.trackChangeHistory = this.trackChangeHistory.filter(
+                                entry => now - entry.time < this.swipeDetectionWindow
+                            );
+                            
+                            if (this.trackChangeHistory.length >= this.swipeThreshold) {
+                                this.isSwiping = true;
+                                console.log(`🖐️ SCROLLING detected (${this.trackChangeHistory.length} changes) - waiting...`);
+                                
+                                if (this.swipeSettleTimer) clearTimeout(this.swipeSettleTimer);
+                                this.swipeSettleTimer = setTimeout(() => {
+                                    this.isSwiping = false;
+                                    this.trackChangeHistory = [];
+                                }, this.swipeSettleTime);
+                            }
+                            this.lastAnnouncedTrack = currentTrackNum;
+                        }
+                        
+                        // Start the hover settle timer - will announce if we stay on this control
+                        if (!this.visualOnly && identification.announcement && this.rhea) {
+                            this.hoverSettleTimer = setTimeout(() => {
+                                // Only announce if still on the same control
+                                if (this.lastHoveredControl?.id === currentControlId && 
+                                    !this.isSwiping && 
+                                    !this.suppressNormalAnnouncements) {
+                                    
+                                    // Check if we already announced this exact control
+                                    if (this.lastAnnouncedControl === currentControlId) {
+                                        console.log('🔇 Already announced this control');
+                                        return;
+                                    }
+                                    
+                                    let announcement = identification.announcement;
+                                    const term = this.getTerminology();
+                                    if (term === 'Channel') {
+                                        announcement = announcement.replace(/\bTrack\b/gi, 'Channel');
+                                    }
+                                    
+                                    console.log('🔊 HOVER SETTLED:', announcement);
+                                    
+                                    if (window.overlay && window.overlay.updateControl) {
+                                        window.overlay.updateControl(announcement);
+                                    }
+                                    
+                                    this.safeSpeak(announcement);
+                                    this.lastAnnouncedControl = currentControlId;
                                 }
-                                
-                                let announcement = identification.announcement;
-                                
-                                // Replace "Track" with "Channel" if in mixer view
-                                const term = this.getTerminology();
-                                if (term === 'Channel') {
-                                    announcement = announcement.replace(/\bTrack\b/gi, 'Channel');
-                                }
-                                
-                                console.log('🔊 SETTLED ANNOUNCEMENT:', announcement);
-                                
-                                // Send to overlay window
-                                if (window.overlay && window.overlay.updateControl) {
-                                    window.overlay.updateControl(announcement);
-                                }
-                                
-                                // Use safeSpeak to prevent double voice
-                                this.safeSpeak(announcement);
-                            }, 250); // 250ms - responsive but not too fast
+                            }, this.hoverSettleTime);
                         }
                     }
+                    // If control is the SAME, we're still hovering - let the timer run
                 });
                 console.log('✅ Smart learning listener set up (with 200ms debounce)');
             }
