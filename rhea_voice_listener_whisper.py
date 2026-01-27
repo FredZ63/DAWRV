@@ -446,8 +446,8 @@ def is_echo(text):
 # Main loop
 last_command = None
 last_time = 0
-COOLDOWN = 3.0  # Longer cooldown to prevent loops
-POST_SPEECH_DELAY = 3.0  # Wait 1.5s after RHEA speaks
+COOLDOWN = 5.0  # Longer cooldown to prevent loops
+POST_SPEECH_DELAY = 4.0  # Wait 1.5s after RHEA speaks
 
 while True:
     try:
@@ -459,6 +459,20 @@ while True:
             # CRITICAL: Wait for echo to fade from room
             print(f'⏳ Waiting {POST_SPEECH_DELAY}s for echo to fade...', flush=True)
             time.sleep(POST_SPEECH_DELAY)
+            # FLUSH any buffered audio by reading and discarding
+            print('🗑️ Flushing audio buffer...', flush=True)
+            try:
+                flush_audio = pyaudio.PyAudio()
+                flush_stream = flush_audio.open(format=FORMAT, channels=CHANNELS, rate=RATE,
+                                                input=True, input_device_index=DEVICE_INDEX,
+                                                frames_per_buffer=CHUNK)
+                for _ in range(20):  # Flush ~1.3 seconds of buffer
+                    flush_stream.read(CHUNK, exception_on_overflow=False)
+                flush_stream.stop_stream()
+                flush_stream.close()
+                flush_audio.terminate()
+            except:
+                pass
             print('👂 Resuming...', flush=True)
             continue
         
