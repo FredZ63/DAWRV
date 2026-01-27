@@ -86,12 +86,15 @@ class StudioVocabularyMatcher {
             }
             
             // 4. Tag-based boost (check if utterance contains any tags)
-            if (item.tags && item.tags.length > 0) {
+            // Only use tag matching for VIBE phrases (not actions) to prevent false positives
+            if (item.tags && item.tags.length > 0 && item.intentType === 'vibe') {
                 const tagScore = this.tagMatch(normalized, item.tags);
-                if (tagScore > 0.5 && candidates.length === 0) {
+                // Require higher threshold (0.6+) and at least 2 matching tags for safety
+                const matchedTagCount = Math.round(tagScore * item.tags.length);
+                if (tagScore >= 0.6 && matchedTagCount >= 2 && candidates.length === 0) {
                     candidates.push({
                         item,
-                        score: tagScore * 0.7, // Lower priority for tag-only matches
+                        score: tagScore * 0.6, // Lower priority for tag-only matches
                         matchType: 'tag',
                         matchedPhrase: item.phrase
                     });
@@ -275,6 +278,8 @@ class StudioVocabularyMatcher {
                 score: match.score,
                 matchType: match.matchType
             },
+            // Include full match result to avoid re-matching (performance fix)
+            fullMatch: match,
             hasActionMapping: match.item.actionMapping?.enabled && 
                               match.item.actionMapping?.actions?.length > 0,
             clarificationRule: match.item.clarificationRule

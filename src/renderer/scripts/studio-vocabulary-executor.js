@@ -113,7 +113,12 @@ class StudioVocabularyExecutor {
                 resolved.resolvedTarget = 'master';
                 break;
             case 'focusedUIElement':
-                resolved.resolvedTarget = context.focusedElement || context.activeControl || null;
+                resolved.resolvedTarget = context.focusedElement || context.activeControl;
+                // If no focused element, trigger clarification
+                if (!resolved.resolvedTarget) {
+                    resolved.needsClarification = true;
+                    resolved.clarificationQuestion = "What should I adjust? Select a track or hover over a control first.";
+                }
                 break;
             case 'transport':
                 resolved.resolvedTarget = 'transport';
@@ -264,27 +269,27 @@ class StudioVocabularyExecutor {
         // Map parameter names to REAPER commands
         switch (paramName) {
             case 'volume':
-                if (window.api && window.api.executeTrackCommand) {
+                if (window.api?.executeTrackCommand) {
                     await window.api.executeTrackCommand('volume', target, amount);
                     return { success: true, action: 'volume', target, delta: amount, unit };
                 }
-                break;
+                return { success: false, error: 'REAPER track API not available - is REAPER connected?' };
                 
             case 'pan':
-                if (window.api && window.api.executeTrackCommand) {
+                if (window.api?.executeTrackCommand) {
                     await window.api.executeTrackCommand('pan', target, amount);
                     return { success: true, action: 'pan', target, delta: amount, unit };
                 }
-                break;
+                return { success: false, error: 'REAPER track API not available - is REAPER connected?' };
                 
             case 'mute':
             case 'solo':
             case 'recarm':
-                if (window.api && window.api.executeTrackCommand) {
+                if (window.api?.executeTrackCommand) {
                     await window.api.executeTrackCommand(paramName, target);
                     return { success: true, action: paramName, target };
                 }
-                break;
+                return { success: false, error: 'REAPER track API not available - is REAPER connected?' };
                 
             case 'comp':
             case 'eq':
@@ -301,8 +306,6 @@ class StudioVocabularyExecutor {
             default:
                 return { success: false, error: `Unknown parameter: ${paramName}` };
         }
-        
-        return { success: false, error: 'Could not execute parameter delta' };
     }
     
     /**

@@ -437,10 +437,17 @@ class StudioVocabularyStorage {
     }
     
     /**
-     * Generate unique ID
+     * Generate unique ID (collision-safe)
      */
     generateId() {
-        return 'vocab_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);
+        // Use crypto.randomUUID if available (modern browsers), otherwise fallback
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+            return 'vocab_' + crypto.randomUUID();
+        }
+        // Fallback: timestamp + counter + random
+        if (!this._idCounter) this._idCounter = 0;
+        this._idCounter++;
+        return 'vocab_' + Date.now().toString(36) + '_' + this._idCounter + '_' + Math.random().toString(36).substr(2, 9);
     }
     
     // ========================================================================

@@ -3155,7 +3155,8 @@ class RHEAController {
             
             if (vocabMatch.intentType === 'action' && hasActionMapping) {
                 // Action phrases - build and execute ActionPlan
-                const matchResult = matcher.match(utterance);
+                // Use cached fullMatch to avoid double-matching (performance fix)
+                const matchResult = vocabContext.fullMatch;
                 
                 if (!matchResult || !matchResult.item) {
                     return null;
@@ -5194,6 +5195,20 @@ class RHEAController {
             if (match && match.action) {
                 console.log('✅ Keyword match found:', match.action);
             }
+        }
+        
+        // ============================================================
+        // STUDIO VOCABULARY: Check for pending clarification first
+        // ============================================================
+        if (this.pendingVocabAction) {
+            const clarificationHandled = await this.handleVocabClarification(transcript);
+            if (clarificationHandled) {
+                console.log('🎤 Clarification handled for pending vocab action');
+                this.isProcessingCommand = false;
+                return { handled: true, source: 'vocab-clarification' };
+            }
+            // If clarification failed to parse, clear pending and continue
+            this.pendingVocabAction = null;
         }
         
         // ============================================================
