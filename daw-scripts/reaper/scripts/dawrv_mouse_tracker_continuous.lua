@@ -342,8 +342,8 @@ function identify_mcp_control(track, x, y)
     local window, segment, details = reaper.GetThingFromPoint(x, y)
     local seg_lower = segment and string.lower(tostring(segment)) or ""
     
-    -- DEBUG: Uncomment to log segment for troubleshooting theme-specific issues
-    -- reaper.ShowConsoleMsg(string.format("MCP segment: '%s' window: '%s'\n", seg_lower, tostring(window)))
+    -- DEBUG: Uncomment to log segment for troubleshooting
+    -- reaper.ShowConsoleMsg(string.format("🎯 segment='%s' track=%d\n", seg_lower, reaper.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER")))
     
     -- REAPER returns segment info for mixer controls - check for MCP-specific patterns first
     -- Patterns: "mcp.mute", "mcp.solo", "mcp.volume", "mcp.pan", etc.
