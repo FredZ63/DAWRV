@@ -38,7 +38,7 @@ class ScreenAwarenessUI {
         this.suppressNormalAnnouncements = false; // Suppress regular announcements during fader movement
         
         // HOVER SETTLE - Only announce when mouse has settled on the SAME control
-        this.hoverSettleTime = 400; // Must hover on same control for 400ms before announcing
+        this.hoverSettleTime = 200; // Must hover on same control for 200ms before announcing (FAST)
         this.hoverSettleTimer = null;
         this.lastHoveredControl = null; // {track, control_type, timestamp}
         this.pendingAnnouncement = null; // The announcement waiting to be spoken
@@ -58,7 +58,7 @@ class ScreenAwarenessUI {
         this.isSpeaking = false;
         this.lastSpokenText = '';
         this.lastSpeakTime = 0;
-        this.minSpeakInterval = 600; // Minimum 600ms between different announcements
+        this.minSpeakInterval = 400; // Minimum 400ms between different announcements
         
         // Load settings from localStorage
         this.loadSettings();
@@ -550,7 +550,7 @@ class ScreenAwarenessUI {
         }
         
         // Prevent rapid-fire announcements (different text but too fast)
-        if ((now - this.lastSpeakTime) < 350) {
+        if ((now - this.lastSpeakTime) < 200) {
             console.log('🔇 Too fast, skipping:', text);
             return;
         }
