@@ -195,14 +195,16 @@ def record_audio():
     pre_buffer = deque(maxlen=PRE_BUFFER_CHUNKS)
     
     speech_frames = []
-    SILENCE_THRESHOLD = 400  # VERY HIGH - only loud speech directly into headset mic (prevents noise)
-    MIN_SPEECH_CHUNKS = 8    # Need ~0.5s of sustained speech (prevents quick noises)
-    MAX_SILENCE_CHUNKS = 12  # End after ~0.8s silence
+    SILENCE_THRESHOLD = 150   # LOWERED - headset mic should easily exceed this with speech
+    MIN_SPEECH_CHUNKS = 2     # Only need 2 chunks to trigger (faster response)
+    MAX_SILENCE_CHUNKS = 8    # End after ~500ms silence
+    SKIP_FIRST_CHUNKS = 3     # Skip first few chunks (mic initialization noise)
     
     speech_detected = False
     speech_chunks = 0
     silence_chunks = 0
     max_rms = 0
+    chunks_above_threshold = 0  # Total count (not consecutive)
     
     max_chunks = int(RATE / CHUNK * RECORD_SECONDS)
     
@@ -213,12 +215,18 @@ def record_audio():
             # Convert to numpy
             arr = np.frombuffer(data, dtype=np.int16).copy()
             rms = np.sqrt(np.mean(arr.astype(float)**2))
+            
+            # Skip first few chunks (mic initialization noise)
+            if i < SKIP_FIRST_CHUNKS:
+                continue
+            
             max_rms = max(max_rms, rms)
             
-            # Show live level
-            if i < 20 and i % 5 == 0:
+            # Show live level (every chunk for first 30)
+            if i < 30:
                 bars = int(min(rms / 50, 20))
-                print(f'   📊 Level: {"█" * bars}{"░" * (20-bars)} ({rms:.0f})', flush=True)
+                above = " 🔊" if rms > SILENCE_THRESHOLD else ""
+                print(f'   📊 [{i:2d}] {"█" * bars}{"░" * (20-bars)} ({rms:.0f}){above}', flush=True)
             
             if not speech_detected:
                 # Keep rolling buffer before speech
@@ -226,13 +234,17 @@ def record_audio():
                 
                 if rms > SILENCE_THRESHOLD:
                     speech_chunks += 1
-                    if speech_chunks >= MIN_SPEECH_CHUNKS:
+                    chunks_above_threshold += 1
+                    # Trigger on consecutive OR accumulated chunks
+                    if speech_chunks >= MIN_SPEECH_CHUNKS or chunks_above_threshold >= 4:
                         speech_detected = True
-                        print('🎤 Speech detected!', flush=True)
+                        print(f'🎤 Speech detected! (consec={speech_chunks}, total={chunks_above_threshold})', flush=True)
                         # Include pre-buffer in speech frames
                         speech_frames.extend(list(pre_buffer))
                 else:
-                    speech_chunks = max(0, speech_chunks - 1)  # Decay
+                    # Gentle decay
+                    if speech_chunks > 0:
+                        speech_chunks -= 1
             else:
                 # Capturing speech
                 speech_frames.append(arr)
