@@ -388,17 +388,29 @@ RHEA_PATTERNS = [
     '?',  # Questions = RHEA asking
 ]
 
+# Valid DAW commands - only these get through
+VALID_COMMANDS = [
+    'play', 'stop', 'pause', 'record', 'rewind',
+    'mute', 'unmute', 'solo', 'unsolo', 'arm', 'disarm',
+    'undo', 'redo', 'save',
+    'track', 'channel', 'bar', 'measure', 'marker',
+    'tempo', 'metronome', 'click', 'loop',
+    'raise', 'lower', 'up', 'down', 'louder', 'quieter',
+    'go to', 'jump to', 'start', 'beginning', 'end',
+    'hey rhea', 'rhea', 'okay rhea',
+]
+
 def is_echo(text):
     """Check if transcribed text is likely RHEA's own voice (echo)"""
     if not text:
         return False
     text_lower = text.lower().strip()
     
-    # Very short = likely echo fragment
+    # Very short = likely echo fragment (unless it's a valid short command)
     if len(text_lower) < 3:
         return True
     
-    # Long = likely RHEA speaking, not user command
+    # Long = likely RHEA speaking
     if len(text_lower) > 50:
         print(f'🔇 Echo: too long ({len(text_lower)} chars)', flush=True)
         return True
@@ -415,13 +427,24 @@ def is_echo(text):
             print(f'🔇 Echo: matches pattern "{pattern}"', flush=True)
             return True
     
+    # WHITELIST CHECK: Must contain at least one valid command word
+    has_valid_command = False
+    for cmd in VALID_COMMANDS:
+        if cmd in text_lower:
+            has_valid_command = True
+            break
+    
+    if not has_valid_command:
+        print(f'🔇 Rejected: "{text}" - no valid command words', flush=True)
+        return True
+    
     return False
 
 # Main loop
 last_command = None
 last_time = 0
 COOLDOWN = 3.0  # Longer cooldown to prevent loops
-POST_SPEECH_DELAY = 2.5  # Wait 1.5s after RHEA speaks
+POST_SPEECH_DELAY = 3.0  # Wait 1.5s after RHEA speaks
 
 while True:
     try:
